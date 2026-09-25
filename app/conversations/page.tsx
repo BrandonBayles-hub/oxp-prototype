@@ -79,6 +79,7 @@ import {
   Languages,
   ListChecks,
   CheckCheck,
+  CircleAlert,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -136,6 +137,8 @@ import {
 import { useAgents } from "@/lib/agents-context";
 import { useWorkforce } from "@/lib/workforce-context";
 import { cn } from "@/lib/utils";
+import { makeSessionId } from "@/lib/eli-trace";
+import { EliTraceModal } from "@/components/conversations/eli-trace-modal";
 import {
   buildStaffEmailSignatureBody,
   getEmailThreadRoutingAddresses,
@@ -159,7 +162,6 @@ import {
 import { useTranslationDemo } from "@/lib/translation-demo-context";
 import {
   ClickToCallFloatingPanel,
-  CLICK_TO_CALL_FOLLOWUP_UNASSIGNED,
   type ClickToCallSessionInput,
 } from "@/components/click-to-call-floating-panel";
 import {
@@ -2199,6 +2201,8 @@ function ConversationsContent() {
     markEliPromptShown,
     goLiveAutomationEnabled,
     toggleGoLiveAutomationEnabled,
+    testingModeEnabled,
+    toggleTestingModeEnabled,
   } = useConversationsDemo();
   const { translationEnabled, toggleTranslationEnabled } = useTranslationDemo();
   /** Call controls + phone demo threads (missed/voicemail) for Click To Call or Super Agent 1.0. */
@@ -2208,23 +2212,25 @@ function ConversationsContent() {
   /** Manage Inbox → Defaults: whether the Quick Filter block is visible in the sidebar. */
   const [quickFilterEnabled, setQuickFilterEnabled] = useState(true);
 
-  const clickToCallAssigneeOptions = useMemo(() => {
-    const rest = humanMembers
-      .filter((m) => m.name !== MY_INBOX_ASSIGNEE)
-      .map((m) => ({ value: m.name, label: m.name }))
-      .sort((a, b) => a.label.localeCompare(b.label));
-    return [
-      { value: CLICK_TO_CALL_FOLLOWUP_UNASSIGNED, label: "Unassigned" },
-      { value: MY_INBOX_ASSIGNEE, label: "Assign to me" },
-      ...rest,
-    ];
-  }, [humanMembers]);
-
   const [clickToCallSession, setClickToCallSession] = useState<ClickToCallSessionInput | null>(null);
   const [callConfirmOpen, setCallConfirmOpen] = useState(false);
   const [callConfirmDraft, setCallConfirmDraft] = useState<ClickToCallSessionInput | null>(null);
   const [showCallbackInput, setShowCallbackInput] = useState(false);
   const [callbackNumber, setCallbackNumber] = useState("");
+  /**
+   * Hardcoded staff callback numbers for the click-to-call dialog. The
+   * primary is the default selection; secondaries appear in the picker.
+   * (Prototype data — real product would pull these from the user's
+   * profile settings.)
+   */
+  const STAFF_CALLBACK_NUMBERS = useMemo(
+    () => [
+      { value: "+1 (555) 123-4567", label: "Mobile", isPrimary: true },
+      { value: "+1 (555) 987-6543", label: "Office" },
+    ],
+    []
+  );
+  const primaryStaffCallbackNumber = STAFF_CALLBACK_NUMBERS[0].value;
 
   const beginClickToCallForConversation = useCallback(
     (convo: Pick<ConversationItem, "id" | "resident" | "property" | "contactType">) => {
@@ -3051,14 +3057,30 @@ function ConversationsContent() {
   // like "My Inbox" would otherwise hide it from the left column,
   // so we never need to auto-switch sidebar tabs to make it visible.
   //
-  // We intentionally do NOT gate this with a ref like
-  // `didInitFromParam` — that would keep the effect from firing on
-  // subsequent URL pushes and is what caused the SMS button to
-  // "click but not switch" once the user had already navigated to
-  // this page once.
+  // We intentionally do NOT gate this with a plain "run once" ref
+  // — that would keep the effect from firing on subsequent URL
+  // pushes and is what caused the SMS button to "click but not
+  // switch" once the user had already navigated to this page once.
+  // Instead we track the last URL id we synced (`lastSyncedInitialIdRef`)
+  // so we only push `initialConvoId` → `selectedId` when the URL
+  // param actually *changes*. Without this, `markRead` (called by
+  // every thread-list click) mutates the `conversations` reference,
+  // this effect re-fires, sees the URL param is still pointing at
+  // the *previous* thread, and slams `selectedId` right back —
+  // making the right pane feel "stuck" on whatever thread the URL
+  // last landed on regardless of what you click. `conversations`
+  // stays in the deps so we can catch the case where a URL id
+  // shows up before that conversation has finished loading.
+  const lastSyncedInitialIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (initialConvoId && conversations.some((c) => c.id === initialConvoId)) {
-        setSelectedId(initialConvoId);
+    if (!initialConvoId) {
+      lastSyncedInitialIdRef.current = null;
+      return;
+    }
+    if (lastSyncedInitialIdRef.current === initialConvoId) return;
+    if (conversations.some((c) => c.id === initialConvoId)) {
+      setSelectedId(initialConvoId);
+      lastSyncedInitialIdRef.current = initialConvoId;
     }
   }, [initialConvoId, conversations]);
 
@@ -3103,9 +3125,73 @@ function ConversationsContent() {
   }, [sidebarFilter, superAgent12Enabled, filtered]);
 
   const selected: ConversationItem | null = useMemo(() => {
-    if (!selectedId) return null;
-    return filtered.find((c) => c.id === selectedId) ?? conversations.find((c) => c.id === selectedId) ?? null;
-  }, [selectedId, filtered, conversations]);
+    if (selectedId) {
+      const match =
+        filtered.find((c) => c.id === selectedId) ??
+        conversations.find((c) => c.id === selectedId) ??
+        null;
+      if (match) return match;
+    }
+    // Fallback: if a NEW SMS/Email is being composed (no real thread yet)
+    // and staff clicks the recipient name to open the Entrata profile
+    // curtain, we still need a `ConversationItem` shape for the curtain
+    // to render — property, unit, etc. So synthesize a lightweight item
+    // from the pending compose recipient. The right pane always prefers
+    // `pendingSmsCompose` / `pendingEmailCompose` over `selected` when
+    // rendering, so this fallback never leaks into the main pane.
+    const pending = pendingSmsCompose ?? pendingEmailCompose;
+    if (pending) {
+      const channel = pendingSmsCompose ? "SMS" : "Email";
+      const synthetic: ConversationItem = {
+        id: `__pending_${channel.toLowerCase()}_${pending.id}__`,
+        resident: pending.name,
+        unit: pending.bldgUnit === "-" ? null : pending.bldgUnit,
+        preview: "",
+        agent: "None",
+        time: "just now",
+        contactType: pending.type === "Resident" ? "Resident" : "Lead",
+        property: pending.property,
+        channel,
+        assignee: "Abe Kashiwagi",
+        labels: [pending.type === "Resident" ? "Resident" : "Lead"],
+        status: "open",
+        hasUnread: false,
+        messages: [],
+      };
+      return synthetic;
+    }
+    return null;
+  }, [selectedId, filtered, conversations, pendingSmsCompose, pendingEmailCompose]);
+
+  // Safety net: when `selectedId` *changes* to a different real
+  // conversation (URL nav, sidebar-filter auto-select, thread-list click,
+  // etc.), dismiss any stale inline compose slot so the newly-selected
+  // thread wins the right pane. Individual click handlers already clear
+  // `pendingSmsCompose` / `pendingEmailCompose`, but this catches every
+  // other path — without it, once staff opens an inline SMS/Email
+  // composer, the right pane stays pinned to that recipient even after
+  // clicking a different thread. We compare against the previous
+  // `selectedId` so this doesn't fire when a pending compose is *newly*
+  // set on top of an unchanged `selectedId` (the compose-from-search
+  // flow) — that path deliberately shows the composer.
+  const prevSelectedIdForPendingRef = useRef<string | null>(selectedId);
+  useEffect(() => {
+    const prev = prevSelectedIdForPendingRef.current;
+    const cur = selectedId;
+    prevSelectedIdForPendingRef.current = cur;
+    if (!cur || cur === prev) return;
+    if (!pendingSmsCompose && !pendingEmailCompose) return;
+    if (!conversations.some((c) => c.id === cur)) return;
+    setPendingSmsCompose(null);
+    setPendingEmailCompose(null);
+  }, [
+    selectedId,
+    conversations,
+    pendingSmsCompose,
+    pendingEmailCompose,
+    setPendingSmsCompose,
+    setPendingEmailCompose,
+  ]);
 
   const linkedByEscalation = useMemo(() => {
     if (!selected?.escalationId) return [];
@@ -3316,6 +3402,11 @@ function ConversationsContent() {
   const [newLabelText, setNewLabelText] = useState("");
   const [addLabelOpen, setAddLabelOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
+  // SA 1.2 Testing mode: opens the Trace panel for the currently-
+  // selected thread. Rendered from the session-id chip in the
+  // conversation header — see `<EliTraceModal>` at the bottom of the
+  // page.
+  const [traceModalOpen, setTraceModalOpen] = useState(false);
   /**
    * When a conversation has multiple resident profiles (see `additionalResidents`) and
    * staff picks one from the "See Records" dropdown, the profile curtain displays that
@@ -3336,7 +3427,15 @@ function ConversationsContent() {
   const [newThreadFromSelection, setNewThreadFromSelection] = useState("");
   const [newThreadOutbound, setNewThreadOutbound] = useState<{
     channel: "SMS" | "Email";
-    from: string;
+    /**
+     * Sender vanity number (SMS) / property email (Email). Optional
+     * because some entry paths (e.g. click-through from the top-level
+     * SMS/Email composer's recipient name) haven't asked the user to
+     * pick a channel yet — for those cases the "From" panel is hidden
+     * and the outbound message is treated as coming from whatever the
+     * previous composer would have sent from.
+     */
+    from?: string;
     propertyName: string;
   } | null>(null);
   const [newThreadSubject, setNewThreadSubject] = useState("");
@@ -4238,7 +4337,10 @@ function ConversationsContent() {
           <ul className="space-y-0.5">
             {([
               { id: "all" as const, icon: Inbox, label: "Open Threads" },
-              { id: "mentions" as const, icon: AtSign, label: "Mentions" },
+              // "Mentions" nav item hidden for now — will be re-enabled
+              // in a future pass. Kept the "mentions" filter id + sidebar
+              // logic intact so restoring is a one-line uncomment.
+              // { id: "mentions" as const, icon: AtSign, label: "Mentions" },
               { id: "unattended" as const, icon: Clock, label: "Needs Action" },
             ] as const).map((item) => (
               <li key={item.id}>
@@ -4257,11 +4359,13 @@ function ConversationsContent() {
                       {allThreadsUnreadCount}
                     </Badge>
                   )}
-                  {item.id === "mentions" && mentionsInboxCount > 0 && (
+                  {/* Mentions badge — hidden while the Mentions nav item is
+                      commented out above. Restore alongside the nav entry. */}
+                  {/* {item.id === "mentions" && mentionsInboxCount > 0 && (
                       <Badge variant="destructive" className="h-[18px] min-w-[18px] shrink-0 justify-center rounded-full px-1 text-[10px] leading-none">
                       {mentionsInboxCount}
                     </Badge>
-                  )}
+                  )} */}
                   {item.id === "unattended" && unattendedInboxCount > 0 && (
                       <Badge variant="destructive" className="h-[18px] min-w-[18px] shrink-0 justify-center rounded-full px-1 text-[10px] leading-none">
                       {unattendedInboxCount}
@@ -4400,8 +4504,23 @@ function ConversationsContent() {
           onSetViewportPreset={setViewportPreset}
           goLiveAutomationEnabled={goLiveAutomationEnabled}
           onToggleGoLiveAutomation={toggleGoLiveAutomationEnabled}
+          testingModeEnabled={testingModeEnabled}
+          onToggleTestingMode={toggleTestingModeEnabled}
         />
       </aside>
+
+      {/* ===== SA 1.2 TESTING · TRACE PANEL ===== */}
+      {/*
+        Rendered unconditionally so open/close animates cleanly; the
+        chip that fires it is already gated on SA 1.2 + Testing being
+        on. `thread={selected}` uses the real ConversationItem the
+        header is currently rendering.
+      */}
+      <EliTraceModal
+        open={traceModalOpen}
+        onOpenChange={setTraceModalOpen}
+        thread={selected}
+      />
 
       {/* ===== CALL SYSTEM SETTINGS PANEL ===== */}
       {callSystemPanelOpen && <CallSystemSettingsPanel onClose={() => setCallSystemPanelOpen(false)} />}
@@ -6799,9 +6918,67 @@ function ConversationsContent() {
       */}
       <div className={cn("flex min-w-0 flex-1 flex-col", (callSystemPanelOpen || manageInboxPanelOpen) && "hidden")}>
         {pendingSmsCompose ? (
-          <EntrataInlineSmsComposer recipient={pendingSmsCompose} />
+          <EntrataInlineSmsComposer
+            recipient={pendingSmsCompose}
+            onNameClick={(draft) => {
+              // Open the Entrata profile curtain for the SMS recipient
+              // AND seed the curtain's right-side "new thread" composer
+              // with the in-progress SMS draft — so the message the staff
+              // was typing "flows over" into the profile view instead of
+              // being hidden behind the curtain. `pendingSmsCompose` is
+              // intentionally NOT cleared so closing the curtain returns
+              // the user to the same top-level SMS composer with their
+              // draft intact.
+              const fromOpts = getPropertyFromChannelOptionsForProperty(
+                pendingSmsCompose.property
+              );
+              const smsFrom = fromOpts.find((o) => o.channel === "SMS");
+              setNewThreadOutbound({
+                channel: "SMS",
+                // Omit `from` when we don't have real vanity data — the
+                // panel hides the FROM section rather than showing a
+                // placeholder like "(property vanity)".
+                ...(smsFrom?.from ? { from: smsFrom.from } : {}),
+                propertyName: pendingSmsCompose.property,
+              });
+              setThreadDraft(draft);
+              setNewThreadSubject("");
+              setOpenThreadIdx(-1);
+              setProfileResidentOverride(pendingSmsCompose.name);
+              setProfileModalOpen(true);
+              setThreadsPanelOpen(true);
+              setProfilePanelInboxOpen(false);
+            }}
+          />
         ) : pendingEmailCompose ? (
-          <EntrataInlineEmailComposer recipient={pendingEmailCompose} />
+          <EntrataInlineEmailComposer
+            recipient={pendingEmailCompose}
+            onNameClick={(subject, body) => {
+              // Same pattern as the SMS composer above — bring the
+              // in-progress email (subject + body) into the curtain's
+              // right-side new-thread composer, keep `pendingEmailCompose`
+              // set so closing the curtain returns to the top-level
+              // email composer with everything intact.
+              const fromOpts = getPropertyFromChannelOptionsForProperty(
+                pendingEmailCompose.property
+              );
+              const emailFrom = fromOpts.find((o) => o.channel === "Email");
+              setNewThreadOutbound({
+                channel: "Email",
+                // Same as SMS above — hide FROM section when no real
+                // property email is on file.
+                ...(emailFrom?.from ? { from: emailFrom.from } : {}),
+                propertyName: pendingEmailCompose.property,
+              });
+              setThreadDraft(body);
+              setNewThreadSubject(subject);
+              setOpenThreadIdx(-1);
+              setProfileResidentOverride(pendingEmailCompose.name);
+              setProfileModalOpen(true);
+              setThreadsPanelOpen(true);
+              setProfilePanelInboxOpen(false);
+            }}
+          />
         ) : selected ? (
           <>
             {/* Header */}
@@ -6875,6 +7052,25 @@ function ConversationsContent() {
                   )}
                   {(!selected.additionalResidents || selected.additionalResidents.length === 0) && (
                   <span className="text-sm text-muted-foreground">{selected.property}</span>
+                  )}
+                  {/*
+                    SA 1.2 Testing mode — session-id chip sits to the
+                    right of the property. Clicking opens the Trace
+                    panel (Entrata Internal / User View) so demoers can
+                    inspect the MCP tool calls Eli made to produce the
+                    last reply on this thread. Hidden entirely unless
+                    both SA 1.2 and Testing are on so the header stays
+                    quiet in every other mode.
+                  */}
+                  {superAgent12Enabled && testingModeEnabled && (
+                    <button
+                      type="button"
+                      onClick={() => setTraceModalOpen(true)}
+                      title="Open the trace for the last Eli reply on this thread"
+                      className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-border bg-muted/50 px-1.5 font-mono text-[10px] text-muted-foreground transition-colors hover:border-eli-purple/40 hover:bg-eli-warm-bg hover:text-eli-purple"
+                    >
+                      {makeSessionId(selected.id)}
+                    </button>
                   )}
                   {translationEnabled && (() => {
                     const lang = conversationDetectedLanguage(selected);
@@ -10652,7 +10848,7 @@ function ConversationsContent() {
                   </button>
                 </div>
 
-                {openThreadIdx === -1 && newThreadOutbound && (
+                {openThreadIdx === -1 && newThreadOutbound?.from && (
                   <div className="shrink-0 border-b border-gray-200 bg-gray-50 px-4 py-2.5">
                     <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">From</p>
                     <p className="text-[12px] font-medium text-gray-900 mt-0.5 tabular-nums">{newThreadOutbound.from}</p>
@@ -10715,17 +10911,37 @@ function ConversationsContent() {
                     )}
                     {openThreadIdx === -1 &&
                     (entSideSentByThreadKey["-1"] ?? []).length === 0 ? (
-                      <p className="text-center text-[12px] text-gray-500 py-8 px-2 leading-relaxed">
-                        {newThreadOutbound ? (
-                          <>
-                            Outbound messages will send from{" "}
-                            <span className="font-medium text-gray-800">{newThreadOutbound.from}</span>.
-                            Compose below to start the thread.
-                          </>
-                        ) : (
-                          "Choose a channel in New Thread to set the From line."
-                        )}
-                      </p>
+                      <div className="mx-2 my-2 flex items-start gap-2 rounded-md bg-status-warning px-3 py-2.5 text-[12px] leading-relaxed text-status-warning-foreground">
+                        <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
+                        <p>
+                          {newThreadOutbound?.from ? (
+                            <>
+                              <span className="font-semibold">
+                                New {newThreadOutbound.channel} · not yet saved.
+                              </span>{" "}
+                              Outbound messages will send from{" "}
+                              <span className="font-medium">
+                                {newThreadOutbound.from}
+                              </span>
+                              . Compose below to start the thread.
+                            </>
+                          ) : newThreadOutbound ? (
+                            <>
+                              <span className="font-semibold">
+                                New {newThreadOutbound.channel} · not yet saved.
+                              </span>{" "}
+                              Compose below to start the thread.
+                            </>
+                          ) : (
+                            <>
+                              <span className="font-semibold">
+                                New thread · not yet saved.
+                              </span>{" "}
+                              Choose a channel in New Thread to set the From line.
+                            </>
+                          )}
+                        </p>
+                      </div>
                     ) : null}
                     {[
                       ...(openThreadIdx >= 0 ? profilePanelThreads[openThreadIdx]?.messages ?? [] : []),
@@ -11842,7 +12058,12 @@ function ConversationsContent() {
                 className="group flex items-start gap-3 rounded-lg border border-border bg-background p-3 text-left transition hover:border-primary/60 hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={() => {
                   setShowCallbackInput(true);
-                  setCallbackNumber(callConfirmDraft?.propertyRingNumberDisplay ?? "");
+                  // Default to the staff's primary callback number (Mobile).
+                  // Staff can pick another saved number from the dropdown
+                  // in the next step. Property callback line remains
+                  // available via the primary "Call from property" option
+                  // outside this branch.
+                  setCallbackNumber(primaryStaffCallbackNumber);
                 }}
               >
                 <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
@@ -11893,26 +12114,40 @@ function ConversationsContent() {
                         className="flex items-center justify-between text-[11px] font-medium text-muted-foreground"
                       >
                         <span>Number we&apos;ll ring</span>
-                        {callConfirmDraft?.propertyRingNumberDisplay && (
-                          <span className="font-normal text-[10px] text-muted-foreground/80">
-                            Default: property callback line
-                          </span>
-                        )}
+                        <span className="font-normal text-[10px] text-muted-foreground/80">
+                          Default: your primary number
+                        </span>
                       </label>
-                      <Input
-                        id="callback-number"
-                        type="tel"
-                        inputMode="tel"
-                        autoFocus
+                      <Select
                         value={callbackNumber}
-                        onChange={(e) => setCallbackNumber(e.target.value)}
-                        placeholder="+1 (555) 123-4567"
-                        className="h-9 font-mono tabular-nums"
-                      />
+                        onValueChange={(v) => setCallbackNumber(v)}
+                      >
+                        <SelectTrigger
+                          id="callback-number"
+                          className="h-9 font-mono tabular-nums"
+                        >
+                          <SelectValue placeholder="Pick a number" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {STAFF_CALLBACK_NUMBERS.map((n) => (
+                            <SelectItem
+                              key={n.value}
+                              value={n.value}
+                              className="font-mono tabular-nums"
+                            >
+                              <span className="flex items-center gap-2">
+                                <span>{n.value}</span>
+                                <span className="font-sans text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                  {n.label}
+                                  {n.isPrimary ? " · Primary" : ""}
+                                </span>
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <p className="text-[10px] leading-snug text-muted-foreground">
-                        {callConfirmDraft?.propertyRingNumberDisplay
-                          ? "Pre-filled with the number your property chose for callbacks. Edit to use a profile or custom number for this call only."
-                          : "Use a number from your profile, or enter a custom one for this call."}
+                        Pick which of your saved numbers to ring for this call.
                       </p>
                     </div>
                     <div className="mt-3 flex items-center justify-end gap-2">
@@ -11978,8 +12213,6 @@ function ConversationsContent() {
       <ClickToCallFloatingPanel
         session={clickToCallSession}
         onDismiss={() => setClickToCallSession(null)}
-        assigneeOptions={clickToCallAssigneeOptions}
-        defaultAssigneeValue={CLICK_TO_CALL_FOLLOWUP_UNASSIGNED}
       />
 
       {/* Floating chatbot-shaped notifications widget for OXP
@@ -12356,6 +12589,8 @@ function CommunicationsDemoControl({
   onSetViewportPreset,
   goLiveAutomationEnabled,
   onToggleGoLiveAutomation,
+  testingModeEnabled,
+  onToggleTestingMode,
 }: {
   clickToCallEnabled: boolean;
   onToggleClickToCall: () => void;
@@ -12379,6 +12614,14 @@ function CommunicationsDemoControl({
   goLiveAutomationEnabled: boolean;
   onToggleGoLiveAutomation: () => void;
   /**
+   * Super Agent 1.2-only "Testing" mode. When on, the conversation
+   * header exposes a clickable session-id chip that opens the
+   * Trace panel for the thread's last Eli reply. Disabled until
+   * SA 1.2 is on.
+   */
+  testingModeEnabled: boolean;
+  onToggleTestingMode: () => void;
+  /**
    * Fires the "pretend a new notification just arrived" pop animation
    * on the floating bell. Used by the "Preview pop-out" sub-button
    * under the Notifications row so demoers can replicate the peek
@@ -12401,7 +12644,8 @@ function CommunicationsDemoControl({
     email2DemoEnabled ||
     notificationsEnabled ||
     viewportPreset !== "off" ||
-    goLiveAutomationEnabled;
+    goLiveAutomationEnabled ||
+    (testingModeEnabled && superAgent12Enabled);
 
   return (
     <div className="shrink-0 border-t border-border bg-muted/30">
@@ -12725,6 +12969,43 @@ function CommunicationsDemoControl({
             <Switch
               checked={goLiveAutomationEnabled}
               onCheckedChange={onToggleGoLiveAutomation}
+              className="mt-0.5"
+            />
+          </label>
+
+          {/*
+            Testing (SA 1.2 only) — exposes the session-id chip in the
+            conversation header. Clicking that chip opens the Trace
+            panel showing the tool calls Eli executed to produce the
+            last reply. Intentionally no description text: this is a
+            debugging surface, not a user-facing feature, and every
+            other affordance lives inside the Trace panel itself.
+            Gated on SA 1.2 because the trace / MCP tool metadata is
+            only wired up for the SA 1.2 threads.
+          */}
+          <label
+            className={cn(
+              "flex cursor-pointer items-start justify-between gap-2 rounded-md px-1.5 py-1.5 transition-colors hover:bg-muted/60",
+              !superAgent12Enabled && "cursor-not-allowed opacity-50 hover:bg-transparent",
+            )}
+            title={
+              superAgent12Enabled
+                ? undefined
+                : "Turn on Super Agent 1.2 first — Testing exposes the SA 1.2 trace surface."
+            }
+          >
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-semibold leading-tight text-foreground">
+                Testing
+                <span className="ml-1 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+                  SA 1.2
+                </span>
+              </p>
+            </div>
+            <Switch
+              checked={testingModeEnabled && superAgent12Enabled}
+              onCheckedChange={onToggleTestingMode}
+              disabled={!superAgent12Enabled}
               className="mt-0.5"
             />
           </label>

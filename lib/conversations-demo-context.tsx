@@ -322,6 +322,14 @@ type ConversationsDemoContextValue = {
   activatedPropertyIds: Set<string>;
   activateProperty: (id: string) => void;
   deactivateProperty: (id: string) => void;
+  /**
+   * Super Agent 1.2-only "Testing" mode. When on, the conversation
+   * header shows a clickable session-id chip that opens the
+   * Trace panel (Entrata Internal / User View) for the thread —
+   * exposing the tool calls Eli made to produce the last reply.
+   */
+  testingModeEnabled: boolean;
+  toggleTestingModeEnabled: () => void;
 };
 
 /**
@@ -470,6 +478,10 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
   const toggleGoLiveAutomationEnabled = useCallback(() => {
     setGoLiveAutomationEnabled((v) => !v);
   }, []);
+  const [testingModeEnabled, setTestingModeEnabled] = useState(false);
+  const toggleTestingModeEnabled = useCallback(() => {
+    setTestingModeEnabled((v) => !v);
+  }, []);
   const activateProperty = useCallback((id: string) => {
     setActivatedPropertyIds((prev) => new Set(prev).add(id));
   }, []);
@@ -603,6 +615,8 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
       activatedPropertyIds,
       activateProperty,
       deactivateProperty,
+      testingModeEnabled,
+      toggleTestingModeEnabled,
     }),
     [
       profileCommsPopupRequest,
@@ -654,6 +668,8 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
       activatedPropertyIds,
       activateProperty,
       deactivateProperty,
+      testingModeEnabled,
+      toggleTestingModeEnabled,
     ]
   );
 

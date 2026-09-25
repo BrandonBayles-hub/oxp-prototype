@@ -51,8 +51,20 @@ import type { Result } from "@/components/app-shell/entrata-global-search";
 
 export function EntrataInlineSmsComposer({
   recipient,
+  onNameClick,
 }: {
   recipient: Result;
+  /**
+   * Optional handler wired up by the OXP conversations page. When provided,
+   * the recipient name in the header renders as a clickable link that opens
+   * the Entrata resident profile curtain — same affordance as clicking the
+   * name on an existing thread. Receives the composer's current draft so
+   * the parent can seed the profile-curtain new-thread composer with the
+   * in-progress message. The parent is responsible for keeping the
+   * pending compose slot alive so returning from the curtain resumes the
+   * draft.
+   */
+  onNameClick?: (draft: string) => void;
 }) {
   const router = useRouter();
   const { addConversation, setPendingSmsCompose } = useConversations();
@@ -162,9 +174,20 @@ export function EntrataInlineSmsComposer({
       >
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
-            <span className="text-base font-semibold leading-tight text-foreground truncate">
-              {recipient.name}
-            </span>
+            {onNameClick ? (
+              <button
+                type="button"
+                onClick={() => onNameClick(draft)}
+                className="text-base font-semibold leading-tight text-foreground truncate hover:underline hover:text-blue-600 transition-colors cursor-pointer"
+                title={`Open ${recipient.name}'s profile`}
+              >
+                {recipient.name}
+              </button>
+            ) : (
+              <span className="text-base font-semibold leading-tight text-foreground truncate">
+                {recipient.name}
+              </span>
+            )}
             <span className="text-sm text-muted-foreground truncate">
               {recipient.property}
             </span>
