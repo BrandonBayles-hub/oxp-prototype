@@ -147,16 +147,16 @@ export function ClickToCallFloatingPanel({
     clearTimers();
     clearDismissSchedule();
 
+    // Demo-only: always connect after the 2s dialing animation. We
+    // previously had a `Math.random() < 0.35` failure roll here that
+    // randomly showed the "Call Failed to Connect" state — removed
+    // because it derails demos.
     connectTimerRef.current = setTimeout(() => {
       connectTimerRef.current = null;
-      const fail = Math.random() < 0.35;
-      if (fail) setPhase("failed");
-      else {
-        setPhase("connected");
-        timerRef.current = setInterval(() => {
-          setDurationSec((n) => n + 1);
-        }, 1000);
-      }
+      setPhase("connected");
+      timerRef.current = setInterval(() => {
+        setDurationSec((n) => n + 1);
+      }, 1000);
     }, 2000);
 
     return () => {
@@ -215,16 +215,17 @@ export function ClickToCallFloatingPanel({
     setCallOutcome(null);
     setDurationAtHangup(null);
     clearTimers();
+    // Retry always connects — kept as a harmless no-op path since the
+    // failed state can no longer be reached (Math.random failure roll
+    // was removed). Left in place so the "Call" retry button on the
+    // failed UI still resolves cleanly if the failure state is ever
+    // reintroduced.
     connectTimerRef.current = setTimeout(() => {
       connectTimerRef.current = null;
-      const fail = Math.random() < 0.35;
-      if (fail) setPhase("failed");
-      else {
-        setPhase("connected");
-        timerRef.current = setInterval(() => {
-          setDurationSec((n) => n + 1);
-        }, 1000);
-      }
+      setPhase("connected");
+      timerRef.current = setInterval(() => {
+        setDurationSec((n) => n + 1);
+      }, 1000);
     }, 2000);
   };
 

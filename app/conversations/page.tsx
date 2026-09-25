@@ -80,6 +80,7 @@ import {
   ListChecks,
   CheckCheck,
   CircleAlert,
+  Lock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -137,7 +138,7 @@ import {
 import { useAgents } from "@/lib/agents-context";
 import { useWorkforce } from "@/lib/workforce-context";
 import { cn } from "@/lib/utils";
-import { makeSessionId } from "@/lib/eli-trace";
+import { makeSessionId, buildRatingForThread } from "@/lib/eli-trace";
 import { EliTraceModal } from "@/components/conversations/eli-trace-modal";
 import {
   buildStaffEmailSignatureBody,
@@ -3408,6 +3409,20 @@ function ConversationsContent() {
   // page.
   const [traceModalOpen, setTraceModalOpen] = useState(false);
   /**
+   * SA 1.2 Testing mode: per-thread state of the "quality analysis"
+   * that the session-id chip kicks off. The analysis is imagined to be
+   * a separate rating tool the orchestrator hands off to — we just
+   * simulate the round-trip with a short delay before flipping to
+   * `loaded`. States:
+   *   • missing entry    — never clicked → chip shows the session id only
+   *   • `loading`        — analysis in flight → chip shows session id + spinner
+   *   • `loaded`         — analysis complete → chip shows session id + score
+   *                        pill; modal banner shows the full rating
+   */
+  const [ratingAnalysisByThread, setRatingAnalysisByThread] = useState<
+    Map<string, "loading" | "loaded">
+  >(() => new Map());
+  /**
    * When a conversation has multiple resident profiles (see `additionalResidents`) and
    * staff picks one from the "See Records" dropdown, the profile curtain displays that
    * resident instead of `selected.resident`. Cleared when the modal closes.
@@ -4520,6 +4535,13 @@ function ConversationsContent() {
         open={traceModalOpen}
         onOpenChange={setTraceModalOpen}
         thread={selected}
+        /*
+          `ratingReady` tells the modal whether the quality-analysis
+          round-trip has completed for this thread. While it's false,
+          the banner shows a "running analysis" placeholder instead of
+          the score — matches the chip in the header.
+        */
+        ratingReady={selected ? ratingAnalysisByThread.get(selected.id) === "loaded" : false}
       />
 
       {/* ===== CALL SYSTEM SETTINGS PANEL ===== */}
@@ -7062,16 +7084,108 @@ function ConversationsContent() {
                     both SA 1.2 and Testing are on so the header stays
                     quiet in every other mode.
                   */}
-                  {superAgent12Enabled && testingModeEnabled && (
-                    <button
-                      type="button"
-                      onClick={() => setTraceModalOpen(true)}
-                      title="Open the trace for the last Eli reply on this thread"
-                      className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-border bg-muted/50 px-1.5 font-mono text-[10px] text-muted-foreground transition-colors hover:border-eli-purple/40 hover:bg-eli-warm-bg hover:text-eli-purple"
-                    >
-                      {makeSessionId(selected.id)}
-                    </button>
-                  )}
+                  {superAgent12Enabled && testingModeEnabled && (() => {
+                    /*
+                      Combined session-id + rating chip. Starts as a
+                      plain session-id pill; the first click kicks off
+                      a simulated "quality analysis" call (imagined to
+                      be a separate rating tool the orchestrator hands
+                      off to). During the analysis the chip shows a
+                      spinner appended to the session id; once the
+                      analysis returns, the score pill fuses into the
+                      same button so it reads as one control (session
+                      id | score). Every click also opens the trace
+                      modal — subsequent clicks are cheap because the
+                      analysis result is cached per thread.
+                    */
+                    const analysisState = ratingAnalysisByThread.get(selected.id);
+                    const rating = analysisState === "loaded" ? buildRatingForThread(selected) : null;
+                    const isPass = rating ? rating.finalScore >= 85 : false;
+
+                    // Score segment coloring — green when passing, red
+                    // (or amber for capped) otherwise. Applied only to
+                    // the score half of the fused pill so the session
+                    // id half stays visually neutral.
+                    const scoreSegmentClass = !rating
+                      ? ""
+                      : isPass
+                      ? "bg-emerald-50 text-emerald-800 border-l-emerald-300"
+                      : "bg-red-50 text-red-800 border-l-red-300";
+
+                    const handleClick = () => {
+                      // First click on a thread we haven't analyzed
+                      // yet: kick off the loading state and simulate a
+                      // ~900ms round-trip to the rating tool.
+                      if (!analysisState) {
+                        setRatingAnalysisByThread((prev) => {
+                          const next = new Map(prev);
+                          next.set(selected.id, "loading");
+                          return next;
+                        });
+                        window.setTimeout(() => {
+                          setRatingAnalysisByThread((prev) => {
+                            // Guard against a stale timeout arriving
+                            // after the entry was reset — unlikely, but
+                            // keeps the state machine tidy.
+                            if (prev.get(selected.id) !== "loading") return prev;
+                            const next = new Map(prev);
+                            next.set(selected.id, "loaded");
+                            return next;
+                          });
+                        }, 900);
+                      }
+                      setTraceModalOpen(true);
+                    };
+
+                    return (
+                      <button
+                        type="button"
+                        onClick={handleClick}
+                        title={
+                          !analysisState
+                            ? "Open the trace for the last Eli reply on this thread — quality analysis runs on first click"
+                            : analysisState === "loading"
+                            ? "Running quality analysis…"
+                            : rating!.capped
+                            ? `ELI+ score ${rating!.finalScore}/100 — capped at ${rating!.capMaxScore} from weighted ${rating!.weightedScore}. Click for full trace + evaluation.`
+                            : `ELI+ score ${rating!.finalScore}/100. Click for full trace + evaluation.`
+                        }
+                        aria-label={
+                          rating
+                            ? `Session ${makeSessionId(selected.id)} — ELI+ score ${rating.finalScore} out of 100. Open trace.`
+                            : `Session ${makeSessionId(selected.id)}. Open trace and run quality analysis.`
+                        }
+                        className="inline-flex h-6 shrink-0 items-stretch overflow-hidden rounded-md border border-border bg-muted/50 font-mono text-[10px] text-muted-foreground transition-colors hover:border-eli-purple/40 hover:bg-eli-warm-bg hover:text-eli-purple"
+                      >
+                        {/* Session-id segment — always visible */}
+                        <span className="inline-flex items-center gap-1 px-1.5">
+                          {makeSessionId(selected.id)}
+                          {analysisState === "loading" && (
+                            <RefreshCw
+                              className="h-2.5 w-2.5 animate-spin opacity-70"
+                              aria-hidden
+                            />
+                          )}
+                        </span>
+
+                        {/* Score segment — appears once analysis is loaded, fused into the same pill */}
+                        {rating && (
+                          <span
+                            className={cn(
+                              "inline-flex items-center gap-1 border-l px-1.5 font-semibold tabular-nums",
+                              scoreSegmentClass,
+                            )}
+                          >
+                            {rating.capped && (
+                              <Lock className="h-2.5 w-2.5 opacity-70" aria-hidden />
+                            )}
+                            {rating.finalScore}
+                            <span className="opacity-60">/100</span>
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })()}
                   {translationEnabled && (() => {
                     const lang = conversationDetectedLanguage(selected);
                     if (!lang) return null;
