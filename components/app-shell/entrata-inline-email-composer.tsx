@@ -181,8 +181,20 @@ ${defaults.address}`;
 
 export function EntrataInlineEmailComposer({
   recipient,
+  onNameClick,
 }: {
   recipient: Result;
+  /**
+   * Optional handler wired up by the OXP conversations page. When provided,
+   * clicking the recipient name in the header opens the full Entrata
+   * resident-profile curtain — same affordance as the SMS composer and
+   * existing threads. Receives the composer's current subject + body so
+   * the parent can seed the profile-curtain new-thread composer with the
+   * in-progress email. When omitted, the composer falls back to its local
+   * lightweight profile preview Dialog so it still works in isolation
+   * (e.g. Storybook, standalone previews).
+   */
+  onNameClick?: (subject: string, body: string) => void;
 }) {
   const router = useRouter();
   const { addConversation, setPendingEmailCompose } = useConversations();
@@ -350,7 +362,17 @@ export function EntrataInlineEmailComposer({
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={() => setProfileOpen(true)}
+                    onClick={() => {
+                      // Prefer the parent-provided handler so we open the
+                      // full Entrata profile curtain (same UX as SMS
+                      // composer + existing thread names). Pass the
+                      // current subject + body so the parent can carry
+                      // the draft into the curtain's new-thread composer.
+                      // Fall back to the local Dialog preview when
+                      // running standalone.
+                      if (onNameClick) onNameClick(subject, draft);
+                      else setProfileOpen(true);
+                    }}
                     className="text-base font-semibold leading-tight text-foreground truncate transition-colors hover:text-blue-600 hover:underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
                     aria-label={`Open profile for ${recipient.name}`}
                   >
