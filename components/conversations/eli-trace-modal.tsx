@@ -14,7 +14,8 @@
  */
 
 import { useState, useMemo } from "react";
-import { Check, Copy } from "lucide-react";
+import Link from "next/link";
+import { ArrowUpRight, Check, Copy, Lock, RefreshCw } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -26,7 +27,9 @@ import type { ConversationItem } from "@/lib/conversations-context";
 import {
   buildTraceForThread,
   buildUserViewForThread,
+  buildRatingForThread,
   type EliTrace,
+  type EliRating,
   type TracePlaybookStep,
   type TraceToolStep,
 } from "@/lib/eli-trace";
@@ -35,11 +38,19 @@ type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   thread: ConversationItem | null;
+  /**
+   * `true` once the quality-analysis round-trip has completed for the
+   * current thread. Owned by the page (mirrors the header-chip state)
+   * so the chip and the modal banner stay in sync — one loading state,
+   * two surfaces. When `false`, the banner shows a "running analysis"
+   * placeholder in place of the full rating card.
+   */
+  ratingReady?: boolean;
 };
 
 type TabId = "entrata" | "user";
 
-export function EliTraceModal({ open, onOpenChange, thread }: Props) {
+export function EliTraceModal({ open, onOpenChange, thread, ratingReady = false }: Props) {
   const [tab, setTab] = useState<TabId>("entrata");
   const [copied, setCopied] = useState(false);
 
@@ -54,8 +65,15 @@ export function EliTraceModal({ open, onOpenChange, thread }: Props) {
     () => (thread ? buildUserViewForThread(thread) : []),
     [thread],
   );
+  // Rating is computed the same way — deterministic per thread id — so
+  // the banner in the modal, the pill in the header, and the full
+  // evaluation page all agree on the same score.
+  const rating: EliRating | null = useMemo(
+    () => (thread ? buildRatingForThread(thread) : null),
+    [thread],
+  );
 
-  if (!trace || !thread) return null;
+  if (!trace || !thread || !rating) return null;
 
   const copySessionId = async () => {
     try {
@@ -123,7 +141,22 @@ export function EliTraceModal({ open, onOpenChange, thread }: Props) {
         </div>
 
         {/* Body — scroll region so long traces don't blow past the viewport. */}
-        <div className="max-h-[70vh] overflow-y-auto px-6 py-5">
+        <div className="max-h-[70vh] overflow-y-auto px-6 py-5 space-y-5">
+          {/*
+            ELI+ Rating banner — sits above the trace body on both tabs
+            so demoers can see the score before diving into the trace.
+            Deep-links out to the full evaluation page for the whole
+            rubric breakdown. While the quality-analysis tool is still
+            "running" (see `ratingReady` prop), a lightweight loading
+            banner takes its place so the modal never renders a stale
+            or eager score ahead of the analysis.
+          */}
+          {ratingReady ? (
+            <RatingBanner rating={rating} threadId={thread.id} />
+          ) : (
+            <RatingLoadingBanner />
+          )}
+
           {tab === "entrata" ? (
             <EntrataInternalView trace={trace} />
           ) : (
@@ -174,7 +207,14 @@ function EntrataInternalView({ trace }: { trace: EliTrace }) {
     <div className="space-y-5">
       <ContextBlock label="Resident message (context)" body={trace.residentMessage} />
       <div>
-        <SectionLabel>Agent reply</SectionLabel>
+        <div className="flex items-baseline gap-2">
+          <SectionLabel>{trace.agentReplyIsDraft ? "Agent draft" : "Agent reply"}</SectionLabel>
+          {trace.agentReplyIsDraft && (
+            <span className="text-[10px] font-medium uppercase tracking-wider text-eli-purple">
+              Suggested
+            </span>
+          )}
+        </div>
         <p className="mt-1.5 text-sm leading-relaxed text-foreground">{trace.agentReply}</p>
       </div>
 
@@ -261,7 +301,7 @@ function ToolCard({ step }: { step: TraceToolStep }) {
             </svg>
           </span>
           <span className="truncate text-sm font-medium text-foreground">Tool · {step.name}</span>
-          <span className="hidden shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground sm:inline-block">
+          <span className="shrink-0 rounded bg-sky-50 px-1.5 py-0.5 font-mono text-[10px] text-sky-700">
             {step.name}
           </span>
         </div>
@@ -334,6 +374,112 @@ function UserView({
           ))}
         </ol>
       </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   ELI+ Rating banner — shows the headline score, the score-override
+   warning when the hard-cap is tripped, and a deep-link to the full
+   evaluation page for the whole rubric breakdown.
+   ───────────────────────────────────────────────────────────────────── */
+
+/**
+ * Placeholder banner shown while the quality-analysis tool is still
+ * running. Same footprint as the real banner so the modal body doesn't
+ * reflow when the score arrives.
+ */
+function RatingLoadingBanner() {
+  return (
+    <div className="rounded-md border border-border bg-muted/40 px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            ELI+ Score
+          </p>
+          <div className="flex items-center gap-2">
+            <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" aria-hidden />
+            <p className="text-sm font-medium text-muted-foreground">
+              Running quality analysis…
+            </p>
+          </div>
+        </div>
+        <span className="text-[11px] text-muted-foreground">
+          Handing off to the rating tool
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function RatingBanner({ rating, threadId }: { rating: EliRating; threadId: string }) {
+  const isPass = rating.finalScore >= 85;
+  // The banner uses a red tint if the hard-cap was tripped (matches the
+  // design comp) OR if the final score is below the 85 passing threshold.
+  const showCapBanner = rating.capped;
+
+  return (
+    <div
+      className={cn(
+        "rounded-md border px-4 py-3",
+        showCapBanner
+          ? "border-red-200 bg-red-50"
+          : isPass
+          ? "border-emerald-200 bg-emerald-50"
+          : "border-amber-200 bg-amber-50",
+      )}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <p
+            className={cn(
+              "text-[10px] font-semibold uppercase tracking-wider",
+              showCapBanner ? "text-red-700" : isPass ? "text-emerald-700" : "text-amber-700",
+            )}
+          >
+            ELI+ Score
+          </p>
+          <p
+            className={cn(
+              "text-2xl font-semibold tabular-nums leading-none",
+              showCapBanner ? "text-red-800" : isPass ? "text-emerald-800" : "text-amber-800",
+            )}
+          >
+            {rating.finalScore}
+            <span className="ml-0.5 text-sm font-medium text-muted-foreground">/100</span>
+          </p>
+          {showCapBanner && rating.capMaxScore != null && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-red-700">
+              <Lock className="h-2.5 w-2.5" aria-hidden />
+              Capped at {rating.capMaxScore}
+            </span>
+          )}
+        </div>
+        <Link
+          href={`/conversations/rating/${threadId}`}
+          className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+        >
+          Open full evaluation
+          <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
+        </Link>
+      </div>
+      {showCapBanner && (
+        <div className="mt-2 flex items-start gap-2 rounded-md bg-red-100/60 px-3 py-2 text-[11px] leading-snug text-red-800">
+          <Lock className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
+          <div>
+            <p>
+              Score override — score capped at {rating.capMaxScore}, down from a weighted{" "}
+              <span className="font-semibold">{rating.weightedScore}</span>.
+            </p>
+            {rating.capTriggerCheck && (
+              <p className="mt-0.5">
+                {rating.capMessage ?? "A hard-cap rule was triggered."} Triggered by check:{" "}
+                <span className="font-semibold">{rating.capTriggerCheck}</span>.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
