@@ -10399,6 +10399,39 @@ function ConversationsContent() {
           setProfileResidentOverride(null);
           setProfileMainTab("Financial");
         };
+        /**
+         * Opens the profile-curtain right-side panel in "new thread"
+         * mode with the chosen channel pre-locked. Shared by:
+         *   · The top-header quick-action row (Message row's SMS/Email
+         *     buttons)
+         *   · The right-rail pill buttons at the bottom of the profile
+         *     inbox view (Email / SMS pills)
+         * Keeps the curtain open so the profile info stays visible on
+         * the left while staff compose on the right. Mirrors the
+         * "New SMS · not yet saved" / "New Email · not yet saved"
+         * surface staff see on the Communications tab.
+         */
+        const openNewThreadInPanel = (channel: "SMS" | "Email") => {
+          const fromOpts = getPropertyFromChannelOptionsForProperty(
+            selected.property
+          );
+          const channelFrom = fromOpts.find((o) => o.channel === channel);
+          // Drop any main-pane composer state so the in-curtain panel
+          // wins the render.
+          setPendingSmsCompose(null);
+          setPendingEmailCompose(null);
+          setNewThreadOutbound({
+            channel,
+            ...(channelFrom?.from ? { from: channelFrom.from } : {}),
+            propertyName: selected.property,
+          });
+          setNewThreadSubject("");
+          setNewThreadSubjectError(false);
+          setThreadDraft("");
+          setOpenThreadIdx(-1);
+          setThreadsPanelOpen(true);
+          setProfilePanelInboxOpen(false);
+        };
         return (
         <>
         {/* Entrata brand bar — separate top layer, above call panel */}
@@ -10451,8 +10484,16 @@ function ConversationsContent() {
                         });
                       },
                     },
-                    { label: "SMS", Icon: MessageSquare },
-                    { label: "Email", Icon: Mail },
+                    {
+                      label: "SMS",
+                      Icon: MessageSquare,
+                      action: () => openNewThreadInPanel("SMS"),
+                    },
+                    {
+                      label: "Email",
+                      Icon: Mail,
+                      action: () => openNewThreadInPanel("Email"),
+                    },
                     { label: "Appointment", Icon: CalendarIcon },
                     { label: "Schedule Manual Contact", Icon: Phone },
                   ].map((btn) => (
@@ -11724,36 +11765,7 @@ function ConversationsContent() {
                         key={channel}
                     type="button"
                         className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-5 py-1.5 text-[13px] font-medium text-gray-600 transition-colors hover:bg-gray-50"
-                    onClick={() => {
-                          const fromOpts =
-                            getPropertyFromChannelOptionsForProperty(
-                              selected.property
-                            );
-                          const channelFrom = fromOpts.find(
-                            (o) => o.channel === channel
-                          );
-
-                          // Drop any main-pane composer state so the
-                          // in-curtain panel wins the render.
-                          setPendingSmsCompose(null);
-                          setPendingEmailCompose(null);
-
-                          // Seed the right-panel new-thread composer
-                          // with the chosen channel + branding.
-                          setNewThreadOutbound({
-                            channel,
-                            ...(channelFrom?.from
-                              ? { from: channelFrom.from }
-                              : {}),
-                            propertyName: selected.property,
-                          });
-                          setNewThreadSubject("");
-                          setNewThreadSubjectError(false);
-                          setThreadDraft("");
-                          setOpenThreadIdx(-1);
-                          setThreadsPanelOpen(true);
-                          setProfilePanelInboxOpen(false);
-                        }}
+                        onClick={() => openNewThreadInPanel(channel)}
                       >
                         <Icon
                           className="h-3.5 w-3.5 text-gray-400"
