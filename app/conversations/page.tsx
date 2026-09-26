@@ -11050,21 +11050,34 @@ function ConversationsContent() {
                             }
                             if (m.type === "label_activity" && m.labelActivity) {
                               const { actor, labelsAdded } = m.labelActivity;
+                              const isEscalation = labelsAdded.some((l) => l.includes("Escalation"));
                               return (
                                 <div
                                   key={`ent-act-la-${actIdx}`}
-                                  className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border/70 bg-muted/25 py-2 px-2"
+                                  className={cn(
+                                    "flex items-center justify-center gap-2 rounded-md border py-2 px-2",
+                                    isEscalation
+                                      ? "border-orange-200 bg-orange-50/80 dark:border-orange-900/50 dark:bg-orange-950/20"
+                                      : "border-dashed border-border/70 bg-muted/25"
+                                  )}
                                 >
-                                  <Tag className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
-                                  <p className="text-center text-[10px] leading-relaxed text-muted-foreground">
-                                    <span className="font-medium text-foreground">{actor}</span>
+                                  {isEscalation ? (
+                                    <AlertTriangle className="h-3 w-3 shrink-0 text-orange-500" aria-hidden />
+                                  ) : (
+                                    <Tag className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+                                  )}
+                                  <p className={cn(
+                                    "text-center text-[10px] leading-relaxed",
+                                    isEscalation ? "text-orange-800 dark:text-orange-200" : "text-muted-foreground"
+                                  )}>
+                                    <span className={cn("font-medium", isEscalation ? "text-orange-900 dark:text-orange-100" : "text-foreground")}>{actor}</span>
                                     {" added "}
-                                    <span className="font-medium text-foreground">
+                                    <span className={cn("font-medium", isEscalation ? "text-orange-900 dark:text-orange-100" : "text-foreground")}>
                                       {labelsAdded.join(", ")}
                                     </span>
                                     {m.timestamp && (
                                       <>
-                                        <span className="text-muted-foreground/70"> · </span>
+                                        <span className={cn(isEscalation ? "opacity-60" : "text-muted-foreground/70")}> · </span>
                                         <span>{m.timestamp}</span>
                                       </>
                                     )}
@@ -11338,19 +11351,32 @@ function ConversationsContent() {
                       }
                       if (msg.type === "label_activity" && msg.labelActivity) {
                         const { actor, labelsAdded } = msg.labelActivity;
+                        const isEscalation = labelsAdded.some((l) => l.includes("Escalation"));
                         return (
                           <div
                             key={idx}
-                            className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border/70 bg-muted/25 py-2 px-2"
+                            className={cn(
+                              "flex items-center justify-center gap-2 rounded-md border py-2 px-2",
+                              isEscalation
+                                ? "border-orange-200 bg-orange-50/80 dark:border-orange-900/50 dark:bg-orange-950/20"
+                                : "border-dashed border-border/70 bg-muted/25"
+                            )}
                           >
-                            <Tag className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
-                            <p className="text-center text-[10px] leading-relaxed text-muted-foreground">
-                              <span className="font-medium text-foreground">{actor}</span>
+                            {isEscalation ? (
+                              <AlertTriangle className="h-3 w-3 shrink-0 text-orange-500" aria-hidden />
+                            ) : (
+                              <Tag className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+                            )}
+                            <p className={cn(
+                              "text-center text-[10px] leading-relaxed",
+                              isEscalation ? "text-orange-800 dark:text-orange-200" : "text-muted-foreground"
+                            )}>
+                              <span className={cn("font-medium", isEscalation ? "text-orange-900 dark:text-orange-100" : "text-foreground")}>{actor}</span>
                               {" added "}
-                              <span className="font-medium text-foreground">{labelsAdded.join(", ")}</span>
+                              <span className={cn("font-medium", isEscalation ? "text-orange-900 dark:text-orange-100" : "text-foreground")}>{labelsAdded.join(", ")}</span>
                               {msg.timestamp && (
                                 <>
-                                  <span className="text-muted-foreground/70"> · </span>
+                                  <span className={cn(isEscalation ? "opacity-60" : "text-muted-foreground/70")}> · </span>
                                   <span>{msg.timestamp}</span>
                                 </>
                               )}
