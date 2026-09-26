@@ -11703,27 +11703,22 @@ function ConversationsContent() {
                         })}
                   </div>
                   {/* Email / SMS quick-compose buttons.
-                      Replaces the previous "New Thread" button + dialog
-                      flow with the same two-channel action the Entrata
-                      global search exposes on every row. Each button:
-                        · If the resident already has an active thread on
-                          the chosen channel (matched by resident +
-                          property, with SMS also matching Voice threads
-                          that grew an SMS `additionalChannels` entry),
-                          we jump straight into that thread — no
-                          duplicate-thread creation, mirroring the
-                          top-nav's `onOpenSmsThread` handler.
-                        · Otherwise we synthesize an EntrataSearchResult
-                          for the current profile and set the matching
-                          `pending{Sms,Email}Compose` slot, so the
-                          shared `EntrataInline{Sms,Email}Composer` takes
-                          over the main right pane exactly like the
-                          search-bar row action does. The sibling slot
-                          is cleared so the freshest click wins the
-                          right-pane render priority.
-                      In both branches we close the profile side panel
-                      (`threadsPanelOpen` / `profilePanelInboxOpen`) so
-                      the composer / thread is fully visible. */}
+                      Each button opens the profile curtain's right-side
+                      new-thread composer with the chosen channel
+                      pre-locked — matching the "New SMS · not yet
+                      saved" / "New Email · not yet saved" surface the
+                      Communications tab shows when creating a fresh
+                      thread. We stay inside the curtain (the profile
+                      pane on the left remains visible), just swap the
+                      right rail into new-thread mode:
+                        · `openThreadIdx = -1` puts the panel in
+                          new-thread mode
+                        · `newThreadOutbound` locks the channel +
+                          FROM branding (property vanity number/email
+                          when available)
+                        · `pending{Sms,Email}Compose` is cleared so the
+                          hidden main-pane composer doesn't race with
+                          the in-curtain one. */}
                   <div className="mt-5 flex flex-wrap items-center gap-2">
                     {(
                       [
@@ -11736,67 +11731,34 @@ function ConversationsContent() {
                     type="button"
                         className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-5 py-1.5 text-[13px] font-medium text-gray-600 transition-colors hover:bg-gray-50"
                     onClick={() => {
-                          const existing = conversations.find((c) => {
-                            if (c.resident !== selected.resident) return false;
-                            if (c.property !== selected.property) return false;
-                            if (channel === "Email") return c.channel === "Email";
-                            return (
-                              c.channel === "SMS" ||
-                              (c.additionalChannels ?? []).includes("SMS")
+                          const fromOpts =
+                            getPropertyFromChannelOptionsForProperty(
+                              selected.property
                             );
-                          });
+                          const channelFrom = fromOpts.find(
+                            (o) => o.channel === channel
+                          );
 
-                          // Close the profile side panel + reset any
-                          // in-panel new-thread state that the legacy
-                          // dialog flow relied on so nothing lingers
-                          // when we bail out to the main right pane.
-                          setThreadsPanelOpen(false);
-                          setProfilePanelInboxOpen(false);
-                          setOpenThreadIdx(null);
-                          setNewThreadOutbound(null);
+                          // Drop any main-pane composer state so the
+                          // in-curtain panel wins the render.
+                          setPendingSmsCompose(null);
+                          setPendingEmailCompose(null);
+
+                          // Seed the right-panel new-thread composer
+                          // with the chosen channel + branding.
+                          setNewThreadOutbound({
+                            channel,
+                            ...(channelFrom?.from
+                              ? { from: channelFrom.from }
+                              : {}),
+                            propertyName: selected.property,
+                          });
                           setNewThreadSubject("");
                           setNewThreadSubjectError(false);
-
-                          if (existing) {
-                            setPendingSmsCompose(null);
-                            setPendingEmailCompose(null);
-                            setSelectedId(existing.id);
-                            markRead(existing.id, MY_INBOX_ASSIGNEE);
-                            return;
-                          }
-
-                          const { residentPhone } =
-                            getVoiceOrSmsThreadRoutingNumbers(
-                              selected.resident,
-                              selected.property,
-                            );
-                          const { residentEmail } =
-                            getEmailThreadRoutingAddresses(
-                              selected.resident,
-                              selected.property,
-                            );
-                          const recipient: EntrataSearchResult = {
-                            id: `profile-panel-${selected.id}-${channel.toLowerCase()}`,
-                            name: selected.resident,
-                            role: "Primary",
-                            type:
-                              selected.contactType === "Lead"
-                                ? "Lead"
-                                : "Resident",
-                            bldgUnit: selected.unit ?? "-",
-                            property: selected.property,
-                            status: "",
-                            email: residentEmail,
-                            phone: residentPhone,
-                            otherResults: [],
-                          };
-                          if (channel === "Email") {
-                            setPendingSmsCompose(null);
-                            setPendingEmailCompose(recipient);
-                          } else {
-                            setPendingEmailCompose(null);
-                            setPendingSmsCompose(recipient);
-                          }
+                          setThreadDraft("");
+                          setOpenThreadIdx(-1);
+                          setThreadsPanelOpen(true);
+                          setProfilePanelInboxOpen(false);
                         }}
                       >
                         <Icon
