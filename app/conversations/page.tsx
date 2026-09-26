@@ -10846,7 +10846,7 @@ function ConversationsContent() {
                               <span className="font-semibold">
                                 New {newThreadOutbound.channel} · not yet saved.
                               </span>{" "}
-                              Outbound messages will send from{" "}
+                              This {newThreadOutbound.channel === "SMS" ? "SMS" : "email"} will send from{" "}
                               <span className="font-medium">
                                 {newThreadOutbound.from}
                               </span>
