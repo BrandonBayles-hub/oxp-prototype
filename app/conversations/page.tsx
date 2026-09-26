@@ -107,7 +107,6 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  videoDialogOverlayClassName,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "@/components/ui/select";
@@ -3469,50 +3468,6 @@ function ConversationsContent() {
     >
   >({});
   const [threadAssignments, setThreadAssignments] = useState<Record<number, string | null>>({});
-  const [messageIntroDismissed, setMessageIntroDismissed] = useState(false);
-  const [showMessageIntro, setShowMessageIntro] = useState(false);
-  const messageIntroVideoRef = useRef<HTMLVideoElement>(null);
-  /** True after the muted 0–3s cover preview has finished (paused at ~3s). Next play restarts from 0 with sound. */
-  const messageIntroPreviewCompletedRef = useRef(false);
-
-
-  useEffect(() => {
-    if (!showMessageIntro) {
-      messageIntroVideoRef.current?.pause();
-      messageIntroPreviewCompletedRef.current = false;
-      return;
-    }
-
-    const v = messageIntroVideoRef.current;
-    if (!v) return;
-
-    messageIntroPreviewCompletedRef.current = false;
-
-    const onTimeUpdate = () => {
-      if (v.currentTime >= 3) {
-        v.pause();
-        v.removeEventListener("timeupdate", onTimeUpdate);
-        messageIntroPreviewCompletedRef.current = true;
-      }
-    };
-
-    const startCoverPreview = () => {
-      v.muted = true;
-      v.currentTime = 0;
-      v.addEventListener("timeupdate", onTimeUpdate);
-      void v.play().catch(() => {
-        v.removeEventListener("timeupdate", onTimeUpdate);
-      });
-    };
-
-    if (v.readyState >= 2) startCoverPreview();
-    else v.addEventListener("loadeddata", startCoverPreview, { once: true });
-
-    return () => {
-      v.removeEventListener("timeupdate", onTimeUpdate);
-      v.removeEventListener("loadeddata", startCoverPreview);
-    };
-  }, [showMessageIntro]);
 
   const THREAD_AGENTS = [
     "Hillary Avates",
@@ -10435,92 +10390,6 @@ function ConversationsContent() {
         )}
       </div>
 
-      {/* Instructional video modal for Message panel */}
-      <Dialog open={showMessageIntro} onOpenChange={setShowMessageIntro}>
-        <DialogContent
-          overlayClassName={videoDialogOverlayClassName}
-          className="sm:max-w-[640px] p-0 gap-0 overflow-hidden"
-        >
-          <DialogHeader className="px-6 pt-6 pb-4">
-            <DialogTitle className="text-lg font-semibold">How to Use the Conversation Panel</DialogTitle>
-            <DialogDescription className="text-sm text-muted-foreground">
-              Watch this short walkthrough to learn how to message residents, manage threads, and assign conversations.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="relative w-full aspect-video bg-black">
-            <video
-              ref={messageIntroVideoRef}
-              className="h-full w-full object-contain"
-              controls
-              playsInline
-              preload="auto"
-              src="/media/oxp-conversation-panel-video.mp4"
-              onPlay={(e) => {
-                const el = e.currentTarget;
-                if (messageIntroPreviewCompletedRef.current) {
-                  messageIntroPreviewCompletedRef.current = false;
-                  el.currentTime = 0;
-                  el.muted = false;
-                }
-              }}
-            >
-              Your browser does not support the video tag.
-            </video>
-          </div>
-
-          <div className="px-6 py-5 flex flex-col gap-4 border-t border-gray-100">
-            <div className="flex flex-col gap-1.5">
-              <p className="text-[13px] font-semibold text-gray-900">What you&apos;ll learn:</p>
-              <ul className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[12px] text-gray-600">
-                <li className="flex items-center gap-2">
-                  <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                  Open &amp; navigate conversation threads
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                  Send messages &amp; private notes
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                  Assign agents to threads
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                  Filter active &amp; closed threads
-                </li>
-              </ul>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-[12px]"
-                onClick={() => {
-                  setShowMessageIntro(false);
-                  setThreadsPanelOpen(true);
-                }}
-              >
-                Skip for now
-              </Button>
-              <Button
-                size="sm"
-                className="gap-2 text-[12px] bg-blue-600 hover:bg-blue-700"
-                onClick={() => {
-                  setMessageIntroDismissed(true);
-                  setShowMessageIntro(false);
-                  setThreadsPanelOpen(true);
-                }}
-              >
-                Don&apos;t show this again
-                <X className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
       {/* Resident Profile Curtain Overlay */}
       {profileModalOpen && selected && (() => {
         const profileResidentName = profileResidentOverride ?? selected.resident;
@@ -10571,50 +10440,30 @@ function ConversationsContent() {
                 <span className="mx-4 text-gray-300">·</span>
                 <div className="ml-auto flex items-center gap-1.5">
                   {[
-                    { label: "Message", Icon: MessageCircle, action: () => {
-                        if (!messageIntroDismissed) {
-                          setShowMessageIntro(true);
-                        } else {
-                          setThreadsPanelOpen((v) => {
-                            const next = !v;
-                            if (!next) setProfilePanelInboxOpen(false);
-                            return next;
-                          });
-                        }
-                      }},
+                    {
+                      label: "Message",
+                      Icon: MessageCircle,
+                      action: () => {
+                        setThreadsPanelOpen((v) => {
+                          const next = !v;
+                          if (!next) setProfilePanelInboxOpen(false);
+                          return next;
+                        });
+                      },
+                    },
                     { label: "SMS", Icon: MessageSquare },
                     { label: "Email", Icon: Mail },
                     { label: "Appointment", Icon: CalendarIcon },
                     { label: "Schedule Manual Contact", Icon: Phone },
                   ].map((btn) => (
-                    <div key={btn.label} className="relative">
-                      {btn.label === "Message" && !threadsPanelOpen && (
-                        <>
-                          <span className="absolute -top-2 -right-2 z-10 flex items-center rounded-full bg-blue-600 px-1.5 py-0.5 text-[8px] font-bold text-white shadow-sm animate-bounce" style={{ animationDuration: "2s" }}>
-                            NEW
-                          </span>
-                          <span className="absolute inset-0 rounded-md animate-pulse ring-2 ring-blue-400/50" style={{ animationDuration: "2s" }} />
-                        </>
-                      )}
-                      {btn.label === "Message" && threadsPanelOpen && (
-                        <span className="absolute -top-2 -right-2 z-10 flex items-center rounded-full bg-blue-600 px-1 py-0.5 text-[7px] font-bold uppercase tracking-wide text-white shadow-sm">
-                          New
-                        </span>
-                      )}
                     <button
+                      key={btn.label}
                       onClick={btn.action}
-                      className={`relative flex items-center gap-1.5 rounded-md border bg-white px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-gray-50 ${
-                        btn.label === "Message" && threadsPanelOpen
-                          ? "border-blue-400 text-blue-600"
-                          : btn.label === "Message"
-                            ? "border-blue-300 text-blue-600 shadow-[0_0_8px_rgba(59,130,246,0.3)]"
-                            : "border-gray-200 text-gray-600"
-                      }`}
+                      className="relative flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-600 transition-colors hover:bg-gray-50"
                     >
-                      <btn.Icon className={`h-3.5 w-3.5 shrink-0 ${btn.label === "Message" ? "text-blue-400" : "text-gray-400"}`} strokeWidth={1.5} />
+                      <btn.Icon className="h-3.5 w-3.5 shrink-0 text-gray-400" strokeWidth={1.5} />
                       {btn.label}
                     </button>
-                    </div>
                   ))}
                 </div>
               </div>
