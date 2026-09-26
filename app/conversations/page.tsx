@@ -10811,19 +10811,6 @@ function ConversationsContent() {
                   </button>
                 </div>
 
-                {openThreadIdx === -1 && newThreadOutbound?.from && (
-                  <div className="shrink-0 border-b border-gray-200 bg-gray-50 px-4 py-2.5">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">From</p>
-                    <p className="text-[12px] font-medium text-gray-900 mt-0.5 tabular-nums">{newThreadOutbound.from}</p>
-                    <p className="text-[10px] text-gray-500 mt-0.5">
-                      {newThreadOutbound.channel === "SMS"
-                        ? "Property SMS vanity"
-                        : "Property email"}{" "}
-                      · {newThreadOutbound.propertyName}
-                    </p>
-                  </div>
-                )}
-
                 {/* Messages area — same style as inbox conversation panel */}
                 <div className="flex-1 overflow-y-auto bg-muted/30 px-4 py-4">
                   <div className="space-y-4">
