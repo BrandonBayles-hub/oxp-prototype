@@ -10824,29 +10824,6 @@ function ConversationsContent() {
                   </div>
                 )}
 
-                {openThreadIdx === -1 && newThreadOutbound?.channel === "Email" && (
-                  <div className="shrink-0 border-b border-gray-200 bg-white px-4 py-2">
-                    <label className={cn("text-[10px] font-semibold uppercase tracking-wide", newThreadSubjectError ? "text-red-600" : "text-gray-500")}>
-                      Subject {newThreadSubjectError && <span className="normal-case tracking-normal font-medium">— required before sending</span>}
-                    </label>
-                    <input
-                      type="text"
-                      value={newThreadSubject}
-                      onChange={(e) => {
-                        setNewThreadSubject(e.target.value);
-                        if (newThreadSubjectError && e.target.value.trim()) setNewThreadSubjectError(false);
-                      }}
-                      placeholder="Enter email subject…"
-                      className={cn(
-                        "mt-1 w-full rounded-md border bg-background px-2.5 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1",
-                        newThreadSubjectError
-                          ? "border-red-400 ring-1 ring-red-300 focus:ring-red-400"
-                          : "border-input focus:ring-ring"
-                      )}
-                    />
-                  </div>
-                )}
-
                 {/* Messages area — same style as inbox conversation panel */}
                 <div className="flex-1 overflow-y-auto bg-muted/30 px-4 py-4">
                   <div className="space-y-4">
@@ -11109,6 +11086,36 @@ function ConversationsContent() {
                           : "border-input bg-background"
                       )}
                     >
+                      {/* Subject line — only for a brand-new Email
+                          thread in message mode. Sits INSIDE the
+                          rounded-xl composer shell above the body
+                          textarea, mirroring the Communications-tab
+                          inline Email composer's layout (see
+                          `entrata-inline-email-composer.tsx`). */}
+                      {openThreadIdx === -1 &&
+                        newThreadOutbound?.channel === "Email" &&
+                        threadInputMode === "message" && (
+                        <input
+                          type="text"
+                          value={newThreadSubject}
+                          onChange={(e) => {
+                            setNewThreadSubject(e.target.value);
+                            if (
+                              newThreadSubjectError &&
+                              e.target.value.trim()
+                            )
+                              setNewThreadSubjectError(false);
+                          }}
+                          placeholder="Subject"
+                          aria-label="Subject"
+                          className={cn(
+                            "w-full bg-transparent px-3 pt-2.5 pb-2 text-[12px] font-medium placeholder:text-muted-foreground focus-visible:outline-none border-b",
+                            newThreadSubjectError
+                              ? "border-red-300"
+                              : "border-border/60"
+                          )}
+                        />
+                      )}
                       <textarea
                         value={threadDraft}
                         onChange={(e) => setThreadDraft(e.target.value)}
