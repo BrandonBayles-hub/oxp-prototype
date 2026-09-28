@@ -58,22 +58,22 @@ export type Nova2Voice = {
 };
 
 export const NOVA2_VOICES: readonly Nova2Voice[] = [
-  { id: "tiffany", label: "Tiffany", gender: "female", accent: "American (en-US)", desc: "Warm polyglot — speaks every supported language" },
-  { id: "amy",     label: "Amy",     gender: "female", accent: "British (en-GB)",  desc: "Clear, polished UK English" },
-  { id: "olivia",  label: "Olivia",  gender: "female", accent: "Australian (en-AU)", desc: "Friendly, easygoing AU English" },
-  { id: "kiara",   label: "Kiara",   gender: "female", accent: "Indian (en-IN)",   desc: "Confident Indian English" },
+  { id: "tiffany", label: "Tiffany", gender: "female", accent: "American (en-US)", desc: "US English · speaks every supported language" },
+  { id: "amy",     label: "Amy",     gender: "female", accent: "British (en-GB)",  desc: "UK English" },
+  { id: "olivia",  label: "Olivia",  gender: "female", accent: "Australian (en-AU)", desc: "Australian English" },
+  { id: "kiara",   label: "Kiara",   gender: "female", accent: "Indian (en-IN)",   desc: "Indian English" },
   { id: "lupe",    label: "Lupe",    gender: "female", accent: "Spanish (es-US)",  desc: "Bilingual US Spanish" },
-  { id: "ambre",   label: "Ambre",   gender: "female", accent: "French (fr-FR)",   desc: "Refined Parisian French" },
-  { id: "tina",    label: "Tina",    gender: "female", accent: "German (de-DE)",   desc: "Crisp Hochdeutsch" },
-  { id: "beatrice",label: "Beatrice",gender: "female", accent: "Italian (it-IT)",  desc: "Bright, expressive Italian" },
-  { id: "carolina",label: "Carolina",gender: "female", accent: "Portuguese (pt-BR)", desc: "Smooth Brazilian Portuguese" },
-  { id: "matthew", label: "Matthew", gender: "male",   accent: "American (en-US)", desc: "Confident polyglot — speaks every supported language" },
-  { id: "arjun",   label: "Arjun",   gender: "male",   accent: "Indian (en-IN)",   desc: "Steady, professional Indian English" },
+  { id: "ambre",   label: "Ambre",   gender: "female", accent: "French (fr-FR)",   desc: "French" },
+  { id: "tina",    label: "Tina",    gender: "female", accent: "German (de-DE)",   desc: "German" },
+  { id: "beatrice",label: "Beatrice",gender: "female", accent: "Italian (it-IT)",  desc: "Italian" },
+  { id: "carolina",label: "Carolina",gender: "female", accent: "Portuguese (pt-BR)", desc: "Brazilian Portuguese" },
+  { id: "matthew", label: "Matthew", gender: "male",   accent: "American (en-US)", desc: "US English · speaks every supported language" },
+  { id: "arjun",   label: "Arjun",   gender: "male",   accent: "Indian (en-IN)",   desc: "Indian English" },
   { id: "carlos",  label: "Carlos",  gender: "male",   accent: "Spanish (es-US)",  desc: "Bilingual US Spanish" },
-  { id: "florian", label: "Florian", gender: "male",   accent: "French (fr-FR)",   desc: "Cool, articulate French" },
-  { id: "lennart", label: "Lennart", gender: "male",   accent: "German (de-DE)",   desc: "Measured, professional German" },
-  { id: "lorenzo", label: "Lorenzo", gender: "male",   accent: "Italian (it-IT)",  desc: "Charismatic Italian baritone" },
-  { id: "leo",     label: "Leo",     gender: "male",   accent: "Portuguese (pt-BR)", desc: "Friendly Brazilian Portuguese" },
+  { id: "florian", label: "Florian", gender: "male",   accent: "French (fr-FR)",   desc: "French" },
+  { id: "lennart", label: "Lennart", gender: "male",   accent: "German (de-DE)",   desc: "German" },
+  { id: "lorenzo", label: "Lorenzo", gender: "male",   accent: "Italian (it-IT)",  desc: "Italian" },
+  { id: "leo",     label: "Leo",     gender: "male",   accent: "Portuguese (pt-BR)", desc: "Brazilian Portuguese" },
 ];
 
 export const DEFAULT_NOVA2_VOICE_ID: Record<"female" | "male", string> = {
