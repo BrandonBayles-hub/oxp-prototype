@@ -55,7 +55,7 @@ export default function ThreadRatingPage({
         <div className="mt-6 rounded-md border border-border bg-card px-6 py-10 text-center">
           <p className="text-sm font-semibold text-foreground">Conversation not found</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            We couldn't find a thread with id <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">{threadId}</code>.
+            We couldn&apos;t find a thread with id <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">{threadId}</code>.
             Return to Communications and re-open the trace from the session-id chip.
           </p>
         </div>
