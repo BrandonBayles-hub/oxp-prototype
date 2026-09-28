@@ -107,7 +107,6 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  videoDialogOverlayClassName,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "@/components/ui/select";
@@ -2352,6 +2351,17 @@ function ConversationsContent() {
     threadId: string;
     inputMode: "message" | "private_note";
     payload: Parameters<typeof addMessage>[1];
+    /**
+     * Optional origin — when the Send was fired from the profile-panel
+     * side-rail composer (not the main pane), the commit path also has to
+     * mirror the message into `entSideSentByThreadKey` so the profile
+     * panel's thread view shows it, and reset `threadDraft` instead of
+     * the main-pane `draft`. Undefined = main-pane composer (default).
+     */
+    source?: "profile-panel";
+    entSideKey?: string;
+    /** Email signature (only populated on the profile-panel path). */
+    emailSignature?: string;
   } | null>(null);
   /**
    * Which of the two options is picked in the modal (drives the Send button's
@@ -3469,50 +3479,26 @@ function ConversationsContent() {
     >
   >({});
   const [threadAssignments, setThreadAssignments] = useState<Record<number, string | null>>({});
-  const [messageIntroDismissed, setMessageIntroDismissed] = useState(false);
-  const [showMessageIntro, setShowMessageIntro] = useState(false);
-  const messageIntroVideoRef = useRef<HTMLVideoElement>(null);
-  /** True after the muted 0–3s cover preview has finished (paused at ~3s). Next play restarts from 0 with sound. */
-  const messageIntroPreviewCompletedRef = useRef(false);
 
-
+  /**
+   * Profile-target reset — whenever the profile-panel's owning resident
+   * changes (either the selected inbox conversation switches or
+   * `profileResidentOverride` swaps to a different linked resident),
+   * drop any in-flight new-thread compose state so the right rail always
+   * reflects the profile that's actually open. Prevents stale state
+   * leaks like "user starts a new SMS from Genevieve's profile → opens
+   * Abel's profile → Abel's right rail still shows Genevieve's
+   * half-typed SMS to Courthouse Square". On initial mount every clear
+   * is a no-op because the values are already at defaults.
+   */
   useEffect(() => {
-    if (!showMessageIntro) {
-      messageIntroVideoRef.current?.pause();
-      messageIntroPreviewCompletedRef.current = false;
-      return;
-    }
-
-    const v = messageIntroVideoRef.current;
-    if (!v) return;
-
-    messageIntroPreviewCompletedRef.current = false;
-
-    const onTimeUpdate = () => {
-      if (v.currentTime >= 3) {
-        v.pause();
-        v.removeEventListener("timeupdate", onTimeUpdate);
-        messageIntroPreviewCompletedRef.current = true;
-      }
-    };
-
-    const startCoverPreview = () => {
-      v.muted = true;
-      v.currentTime = 0;
-      v.addEventListener("timeupdate", onTimeUpdate);
-      void v.play().catch(() => {
-        v.removeEventListener("timeupdate", onTimeUpdate);
-      });
-    };
-
-    if (v.readyState >= 2) startCoverPreview();
-    else v.addEventListener("loadeddata", startCoverPreview, { once: true });
-
-    return () => {
-      v.removeEventListener("timeupdate", onTimeUpdate);
-      v.removeEventListener("loadeddata", startCoverPreview);
-    };
-  }, [showMessageIntro]);
+    setNewThreadOutbound(null);
+    setNewThreadSubject("");
+    setNewThreadSubjectError(false);
+    setThreadDraft("");
+    setOpenThreadIdx(null);
+    setProfilePanelInboxOpen(false);
+  }, [selectedId, profileResidentOverride]);
 
   const THREAD_AGENTS = [
     "Hillary Avates",
@@ -3537,6 +3523,20 @@ function ConversationsContent() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [phoneOpt, setPhoneOpt] = useState("opt-in");
   const [emailOpt, setEmailOpt] = useState("opt-in");
+
+  /**
+   * SA 1.2 demo: contact opt-out gate. When Super Agent 1.2 is on AND the
+   * profile's Phone contact preference is "Opt Out", every SMS composer
+   * (main pane active SMS thread, profile-panel new-thread compose,
+   * profile-panel current-inbox compose, EntrataInlineSmsComposer from
+   * global search) hard-blocks the send and shows a red banner telling
+   * staff they need a verbal opt-in before texting.
+   *
+   * Global (not per-conversation) because the CONTACT PREFERENCES select
+   * itself is a global useState in this prototype — flipping the select
+   * to Opt Out immediately gates every SMS surface for demo simplicity.
+   */
+  const smsBlockedByOptOut = superAgent12Enabled && phoneOpt === "opt-out";
 
   const sunValleyProfileThreads = useMemo((): EntrataProfileThreadRow[] => {
     return [
@@ -3861,6 +3861,17 @@ function ConversationsContent() {
       }
       return;
     }
+    // SA 1.2 demo: contact Phone = "Opt Out" hard-blocks every SMS send.
+    // The red banner in the composer already explains why; we just no-op
+    // Send so the message can never leave. Private notes are staff-facing
+    // and unaffected — only outbound SMS is blocked.
+    if (
+      smsBlockedByOptOut &&
+      selected.channel === "SMS" &&
+      inputMode === "message"
+    ) {
+      return;
+    }
     if (isSuperAgentDemoThread(selected.id) && aiActivated && inputMode === "message" && selectedEscalationTypes.size === 0) {
       setEscalationError(true);
       return;
@@ -4100,6 +4111,40 @@ function ConversationsContent() {
       setNewThreadSubjectError(true);
       return;
     }
+    // SA 1.2 demo: contact Phone = "Opt Out" hard-blocks every SMS send
+    // from the profile-panel composer too — whether the thread is a
+    // brand-new SMS (openThreadIdx === -1, newThreadOutbound.channel
+    // "SMS") or an existing SMS side thread. The red banner rendered
+    // above the composer explains the block; we no-op Send.
+    const composerChannel =
+      openThreadIdx === -1
+        ? newThreadOutbound?.channel
+        : openThreadIdx >= 0
+          ? profilePanelThreads[openThreadIdx]?.channel
+          : undefined;
+    if (
+      smsBlockedByOptOut &&
+      composerChannel === "SMS" &&
+      threadInputMode === "message"
+    ) {
+      return;
+    }
+
+    // SA 1.2 (and SA 1.0) escalation-picker gate — mirrors the main-pane
+    // `handleSend` gate so the profile-panel side-rail composer enforces
+    // the same "pick which escalation this reply is answering" discipline
+    // when the current conversation has active escalation labels.
+    const selectedIsSa1Escalated =
+      threadInputMode === "message" &&
+      (isSuperAgent1DemoThread(selected.id) ||
+        (superAgent12Enabled && !isSuperAgentDemoThread(selected.id))) &&
+      selected.labels.some((l) => l.includes("Escalation"));
+    if (selectedIsSa1Escalated && selectedEscalationTypes.size === 0) {
+      setEscalationError(true);
+      return;
+    }
+    setEscalationError(false);
+
     const now = new Date();
     const timestamp = now.toLocaleString("en-US", {
       month: "short",
@@ -4122,23 +4167,91 @@ function ConversationsContent() {
       isEmailEntThread && threadInputMode === "message"
         ? staffEmailSignatureForProperty(selected, signatureProperty, humanNameSet, humanMembers)
         : undefined;
-    if (threadInputMode === "private_note") {
-      addMessage(selected.id, {
-        role: "staff",
-        text,
-        timestamp,
-        type: "private_note",
-        privateNoteAuthor: MY_INBOX_ASSIGNEE,
-      });
-    } else {
-      addMessage(selected.id, {
-        role: "staff",
-        text,
-        timestamp,
-        type: "message",
-        ...(emailSignature ? { emailSignature } : {}),
-      });
+
+    // "Reply is answering these escalations" tag — mirrors the SA 1.0/1.2
+    // treatment on the main-pane send so the outbound message carries the
+    // same replyToEscalations metadata regardless of which composer sent it.
+    const sa1ReplyToEscalations =
+      selectedIsSa1Escalated && selectedEscalationTypes.size > 0
+        ? Array.from(selectedEscalationTypes)
+        : undefined;
+
+    const stagedMessagePayload: Parameters<typeof addMessage>[1] =
+      threadInputMode === "private_note"
+        ? {
+            role: "staff",
+            text,
+            timestamp,
+            type: "private_note",
+            privateNoteAuthor: MY_INBOX_ASSIGNEE,
+          }
+        : {
+            role: "staff",
+            text,
+            timestamp,
+            type: "message",
+            ...(emailSignature ? { emailSignature } : {}),
+            ...(sa1ReplyToEscalations ? { replyToEscalations: sa1ReplyToEscalations } : {}),
+          };
+
+    // SA 1.2 pre-send Eli-Prompt gate — same as the main-pane `handleSend`.
+    // Any thread where Eli is still on and the Eli Prompt automation is
+    // enabled buffers the outbound reply and opens the Eli Prompt modal
+    // instead of committing the send. The commit path (`commitPendingSend`)
+    // will handle updating `entSideSentByThreadKey` + clearing threadDraft
+    // when it sees `source: "profile-panel"`. Private notes skip the gate.
+    if (
+      threadInputMode === "message" &&
+      superAgent12Enabled &&
+      eliPromptEnabled &&
+      eliModeFor(selected.id).kind === "on"
+    ) {
+      const lastShown = eliPromptShownAt[selected.id];
+      const cadenceMs = eliPromptCadenceMinutes * 60_000;
+      const withinCadenceWindow =
+        typeof lastShown === "number" && Date.now() - lastShown < cadenceMs;
+      if (!withinCadenceWindow) {
+        const defaultOptionEnabled =
+          (eliPromptDefaultOption === "off" && promptOptionOffEnabled) ||
+          (eliPromptDefaultOption === "on" && promptOptionKeepOnEnabled);
+        const fallbackChoice: "off" | "on" | null = promptOptionKeepOnEnabled
+          ? "on"
+          : promptOptionOffEnabled
+            ? "off"
+            : null;
+        const initialChoice = defaultOptionEnabled
+          ? eliPromptDefaultOption
+          : fallbackChoice;
+        setEliPromptPendingSend({
+          threadId: selected.id,
+          inputMode: threadInputMode,
+          payload: stagedMessagePayload,
+          source: "profile-panel",
+          entSideKey: String(openThreadIdx),
+          ...(emailSignature ? { emailSignature } : {}),
+        });
+        setEliPromptChoice(initialChoice);
+        setEliPromptForThreadId(selected.id);
+        setEliPromptOpen(true);
+        return;
+      }
     }
+
+    addMessage(selected.id, stagedMessagePayload);
+
+    // SA 1.0 / SA 1.2 non-gated post-send bookkeeping — track which
+    // escalations the staff has now replied to. Mirrors the main-pane
+    // `handleSend` behavior so the profile-panel path leaves the
+    // conversation in the same state.
+    if (selectedIsSa1Escalated && selectedEscalationTypes.size > 0) {
+      const conversationId = selected.id;
+      const replied = new Set(sa1RepliedEscalationsRef.current.get(conversationId) ?? []);
+      for (const esc of selectedEscalationTypes) replied.add(esc);
+      sa1RepliedEscalationsRef.current.set(conversationId, replied);
+      setSelectedEscalationTypes(new Set());
+      superAgentSelectionsRef.current.set(conversationId, new Set());
+    }
+
     const key = String(openThreadIdx);
     setEntSideSentByThreadKey((prev) => ({
       ...prev,
@@ -6019,8 +6132,14 @@ function ConversationsContent() {
               // the modal is open with no choice picked and no pending send.
               const commitPendingSend = () => {
                 if (!eliPromptChoice || !eliPromptPendingSend) return;
-                const { threadId, payload, inputMode: pendingMode } =
-                  eliPromptPendingSend;
+                const {
+                  threadId,
+                  payload,
+                  inputMode: pendingMode,
+                  source: pendingSource,
+                  entSideKey: pendingEntSideKey,
+                  emailSignature: pendingEmailSignature,
+                } = eliPromptPendingSend;
                 if (eliPromptChoice === "off") {
                   // Eli-Prompt "Turn off Eli":
                   //   • Escalated thread → "off until the escalation is
@@ -6095,16 +6214,57 @@ function ConversationsContent() {
                   }
                 }
 
+                // Track SA 1.0/1.2 "reply is answering this escalation"
+                // bookkeeping — mirrors the non-gated main-pane send so
+                // the escalation-picker's per-thread state stays consistent
+                // whether the reply came from the main composer or the
+                // profile-panel side rail.
+                if (selectedEscalationTypes.size > 0) {
+                  const replied = new Set(sa1RepliedEscalationsRef.current.get(threadId) ?? []);
+                  for (const esc of selectedEscalationTypes) replied.add(esc);
+                  sa1RepliedEscalationsRef.current.set(threadId, replied);
+                }
+
                 // Clear the SA 1.2 escalation-reply picker selections so the
                 // composer resets cleanly. Mirrors the non-gated post-send
                 // path where `selectedEscalationTypes` gets drained.
                 setSelectedEscalationTypes(new Set());
                 superAgentSelectionsRef.current.set(threadId, new Set());
 
+                // Profile-panel origin — mirror the sent message into the
+                // side-rail's `entSideSentByThreadKey` bucket so the panel's
+                // thread view reflects it, and clear `threadDraft` (the
+                // panel's composer draft, distinct from the main-pane `draft`
+                // that `resetComposerAfterSend` handles).
+                if (pendingSource === "profile-panel" && pendingEntSideKey !== undefined) {
+                  const panelText = (payload as { text?: string }).text ?? "";
+                  const panelTimestamp = (payload as { timestamp?: string }).timestamp ?? "";
+                  setEntSideSentByThreadKey((prev) => ({
+                    ...prev,
+                    [pendingEntSideKey]: [
+                      ...(prev[pendingEntSideKey] ?? []),
+                      {
+                        role: "staff" as const,
+                        text: panelText,
+                        timestamp: panelTimestamp,
+                        privateNote: pendingMode === "private_note",
+                        ...(pendingEmailSignature ? { emailSignature: pendingEmailSignature } : {}),
+                      },
+                    ],
+                  }));
+                  setThreadDraft("");
+                }
+
                 markEliPromptShown(threadId);
                 const convo =
                   conversations.find((c) => c.id === threadId) ?? null;
-                resetComposerAfterSend(convo, pendingMode);
+                // Skip the main-pane composer reset when the send came from
+                // the profile-panel side rail — the main-pane composer was
+                // never touched, and calling `resetComposerAfterSend` there
+                // would clobber whatever the main pane currently has queued.
+                if (pendingSource !== "profile-panel") {
+                  resetComposerAfterSend(convo, pendingMode);
+                }
                 setPrivateNoteMention(null);
                 setEliPromptOpen(false);
                 setEliPromptPendingSend(null);
@@ -6942,6 +7102,8 @@ function ConversationsContent() {
         {pendingSmsCompose ? (
           <EntrataInlineSmsComposer
             recipient={pendingSmsCompose}
+            blocked={smsBlockedByOptOut}
+            blockedResidentName={pendingSmsCompose.name}
             onNameClick={(draft) => {
               // Open the Entrata profile curtain for the SMS recipient
               // AND seed the curtain's right-side "new thread" composer
@@ -10243,11 +10405,20 @@ function ConversationsContent() {
                 <div
                   className={cn(
                     "relative flex flex-col rounded-xl border transition-colors focus-within:ring-1 focus-within:ring-ring",
-                    inputMode === "private_note"
-                      ? "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20"
-                      : selected && isSuperAgentDemoThread(selected.id) && aiActivated && selectedEscalationTypes.size > 0
-                        ? "border-orange-300 bg-orange-50/30 dark:border-orange-700 dark:bg-orange-950/10"
-                      : "border-input bg-background"
+                    // SA 1.2 demo: SMS-blocked-by-opt-out gives the
+                    // composer container a red-tinted border + fill so
+                    // the inline block message reads as one loud
+                    // affordance (no separate banner above).
+                    selected &&
+                      selected.channel === "SMS" &&
+                      inputMode === "message" &&
+                      smsBlockedByOptOut
+                      ? "border-red-300 bg-red-50/60 focus-within:ring-red-300 dark:border-red-700/60 dark:bg-red-950/20"
+                      : inputMode === "private_note"
+                        ? "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20"
+                        : selected && isSuperAgentDemoThread(selected.id) && aiActivated && selectedEscalationTypes.size > 0
+                          ? "border-orange-300 bg-orange-50/30 dark:border-orange-700 dark:bg-orange-950/10"
+                          : "border-input bg-background"
                   )}
                 >
                   {escalationError && inputMode !== "private_note" && (
@@ -10299,6 +10470,34 @@ function ConversationsContent() {
                         No matching staff
                       </div>
                     ) : null)}
+                  {selected &&
+                  selected.channel === "SMS" &&
+                  inputMode === "message" &&
+                  smsBlockedByOptOut ? (
+                    // SA 1.2 demo: SMS block message rendered INSIDE the
+                    // composer (replacing the textarea) so the "you
+                    // can't send SMS" affordance is one loud unit
+                    // instead of a banner + dead textarea. Container
+                    // above gets the red border + fill.
+                    <div className="flex items-start gap-2 px-4 py-3 text-[13px] leading-relaxed text-red-800 dark:text-red-200">
+                      <CircleAlert
+                        className="mt-0.5 h-4 w-4 shrink-0 text-red-600 dark:text-red-400"
+                        strokeWidth={2}
+                        aria-hidden
+                      />
+                      <div className="min-w-0">
+                        <p className="font-semibold">
+                          Can&apos;t send SMS &mdash; {selected.resident} is
+                          marked <span className="uppercase">Opt Out</span>.
+                        </p>
+                        <p className="mt-0.5 text-[12px] text-red-700/90 dark:text-red-300/90">
+                          You need a verbal opt-in from them before you can
+                          text this number. Update Contact Preferences to Opt
+                          In once you&apos;ve confirmed.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
                   <textarea
                     ref={chatTextareaRef}
                     value={draft}
@@ -10334,6 +10533,7 @@ function ConversationsContent() {
                         : undefined
                     }
                   />
+                  )}
                   {(() => {
                     // Translation composer preview: single-line inline preview above the
                     // composer footer. Only shown when auto-translate is on AND the draft has
@@ -10416,7 +10616,16 @@ function ConversationsContent() {
                         "h-8 w-8 rounded-full",
                         inputMode === "private_note" && "bg-amber-600 hover:bg-amber-700"
                       )}
-                      disabled={!hasSendableDraft}
+                      disabled={
+                        !hasSendableDraft ||
+                        // SA 1.2 demo: SMS-blocked-by-opt-out disables Send
+                        // in Message mode so staff physically can't fire a
+                        // send that the handler would no-op anyway.
+                        (smsBlockedByOptOut &&
+                          !!selected &&
+                          selected.channel === "SMS" &&
+                          inputMode === "message")
+                      }
                       onClick={handleSend}
                       aria-label="Send"
                     >
@@ -10435,92 +10644,6 @@ function ConversationsContent() {
         )}
       </div>
 
-      {/* Instructional video modal for Message panel */}
-      <Dialog open={showMessageIntro} onOpenChange={setShowMessageIntro}>
-        <DialogContent
-          overlayClassName={videoDialogOverlayClassName}
-          className="sm:max-w-[640px] p-0 gap-0 overflow-hidden"
-        >
-          <DialogHeader className="px-6 pt-6 pb-4">
-            <DialogTitle className="text-lg font-semibold">How to Use the Conversation Panel</DialogTitle>
-            <DialogDescription className="text-sm text-muted-foreground">
-              Watch this short walkthrough to learn how to message residents, manage threads, and assign conversations.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="relative w-full aspect-video bg-black">
-            <video
-              ref={messageIntroVideoRef}
-              className="h-full w-full object-contain"
-              controls
-              playsInline
-              preload="auto"
-              src="/media/oxp-conversation-panel-video.mp4"
-              onPlay={(e) => {
-                const el = e.currentTarget;
-                if (messageIntroPreviewCompletedRef.current) {
-                  messageIntroPreviewCompletedRef.current = false;
-                  el.currentTime = 0;
-                  el.muted = false;
-                }
-              }}
-            >
-              Your browser does not support the video tag.
-            </video>
-          </div>
-
-          <div className="px-6 py-5 flex flex-col gap-4 border-t border-gray-100">
-            <div className="flex flex-col gap-1.5">
-              <p className="text-[13px] font-semibold text-gray-900">What you&apos;ll learn:</p>
-              <ul className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[12px] text-gray-600">
-                <li className="flex items-center gap-2">
-                  <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                  Open &amp; navigate conversation threads
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                  Send messages &amp; private notes
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                  Assign agents to threads
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                  Filter active &amp; closed threads
-                </li>
-              </ul>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-[12px]"
-                onClick={() => {
-                  setShowMessageIntro(false);
-                  setThreadsPanelOpen(true);
-                }}
-              >
-                Skip for now
-              </Button>
-              <Button
-                size="sm"
-                className="gap-2 text-[12px] bg-blue-600 hover:bg-blue-700"
-                onClick={() => {
-                  setMessageIntroDismissed(true);
-                  setShowMessageIntro(false);
-                  setThreadsPanelOpen(true);
-                }}
-              >
-                Don&apos;t show this again
-                <X className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
       {/* Resident Profile Curtain Overlay */}
       {profileModalOpen && selected && (() => {
         const profileResidentName = profileResidentOverride ?? selected.resident;
@@ -10529,6 +10652,39 @@ function ConversationsContent() {
               setProfilePanelInboxOpen(false);
           setProfileResidentOverride(null);
           setProfileMainTab("Financial");
+        };
+        /**
+         * Opens the profile-curtain right-side panel in "new thread"
+         * mode with the chosen channel pre-locked. Shared by:
+         *   · The top-header quick-action row (Message row's SMS/Email
+         *     buttons)
+         *   · The right-rail pill buttons at the bottom of the profile
+         *     inbox view (Email / SMS pills)
+         * Keeps the curtain open so the profile info stays visible on
+         * the left while staff compose on the right. Mirrors the
+         * "New SMS · not yet saved" / "New Email · not yet saved"
+         * surface staff see on the Communications tab.
+         */
+        const openNewThreadInPanel = (channel: "SMS" | "Email") => {
+          const fromOpts = getPropertyFromChannelOptionsForProperty(
+            selected.property
+          );
+          const channelFrom = fromOpts.find((o) => o.channel === channel);
+          // Drop any main-pane composer state so the in-curtain panel
+          // wins the render.
+          setPendingSmsCompose(null);
+          setPendingEmailCompose(null);
+          setNewThreadOutbound({
+            channel,
+            ...(channelFrom?.from ? { from: channelFrom.from } : {}),
+            propertyName: selected.property,
+          });
+          setNewThreadSubject("");
+          setNewThreadSubjectError(false);
+          setThreadDraft("");
+          setOpenThreadIdx(-1);
+          setThreadsPanelOpen(true);
+          setProfilePanelInboxOpen(false);
         };
         return (
         <>
@@ -10571,50 +10727,38 @@ function ConversationsContent() {
                 <span className="mx-4 text-gray-300">·</span>
                 <div className="ml-auto flex items-center gap-1.5">
                   {[
-                    { label: "Message", Icon: MessageCircle, action: () => {
-                        if (!messageIntroDismissed) {
-                          setShowMessageIntro(true);
-                        } else {
-                          setThreadsPanelOpen((v) => {
-                            const next = !v;
-                            if (!next) setProfilePanelInboxOpen(false);
-                            return next;
-                          });
-                        }
-                      }},
-                    { label: "SMS", Icon: MessageSquare },
-                    { label: "Email", Icon: Mail },
+                    {
+                      label: "Message",
+                      Icon: MessageCircle,
+                      action: () => {
+                        setThreadsPanelOpen((v) => {
+                          const next = !v;
+                          if (!next) setProfilePanelInboxOpen(false);
+                          return next;
+                        });
+                      },
+                    },
+                    {
+                      label: "SMS",
+                      Icon: MessageSquare,
+                      action: () => openNewThreadInPanel("SMS"),
+                    },
+                    {
+                      label: "Email",
+                      Icon: Mail,
+                      action: () => openNewThreadInPanel("Email"),
+                    },
                     { label: "Appointment", Icon: CalendarIcon },
                     { label: "Schedule Manual Contact", Icon: Phone },
                   ].map((btn) => (
-                    <div key={btn.label} className="relative">
-                      {btn.label === "Message" && !threadsPanelOpen && (
-                        <>
-                          <span className="absolute -top-2 -right-2 z-10 flex items-center rounded-full bg-blue-600 px-1.5 py-0.5 text-[8px] font-bold text-white shadow-sm animate-bounce" style={{ animationDuration: "2s" }}>
-                            NEW
-                          </span>
-                          <span className="absolute inset-0 rounded-md animate-pulse ring-2 ring-blue-400/50" style={{ animationDuration: "2s" }} />
-                        </>
-                      )}
-                      {btn.label === "Message" && threadsPanelOpen && (
-                        <span className="absolute -top-2 -right-2 z-10 flex items-center rounded-full bg-blue-600 px-1 py-0.5 text-[7px] font-bold uppercase tracking-wide text-white shadow-sm">
-                          New
-                        </span>
-                      )}
                     <button
+                      key={btn.label}
                       onClick={btn.action}
-                      className={`relative flex items-center gap-1.5 rounded-md border bg-white px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-gray-50 ${
-                        btn.label === "Message" && threadsPanelOpen
-                          ? "border-blue-400 text-blue-600"
-                          : btn.label === "Message"
-                            ? "border-blue-300 text-blue-600 shadow-[0_0_8px_rgba(59,130,246,0.3)]"
-                            : "border-gray-200 text-gray-600"
-                      }`}
+                      className="relative flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-600 transition-colors hover:bg-gray-50"
                     >
-                      <btn.Icon className={`h-3.5 w-3.5 shrink-0 ${btn.label === "Message" ? "text-blue-400" : "text-gray-400"}`} strokeWidth={1.5} />
+                      <btn.Icon className="h-3.5 w-3.5 shrink-0 text-gray-400" strokeWidth={1.5} />
                       {btn.label}
                     </button>
-                    </div>
                   ))}
                 </div>
               </div>
@@ -10900,7 +11044,7 @@ function ConversationsContent() {
                       >
                         {getThreadAssignee(openThreadIdx)
                           ? initials(getThreadAssignee(openThreadIdx)!)
-                          : initials(selected.resident)}
+                          : initials(profileResidentName)}
                       </button>
                     </PopoverTrigger>
                     <PopoverContent
@@ -10916,7 +11060,13 @@ function ConversationsContent() {
                     </PopoverContent>
                   </Popover>
                   <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-semibold text-gray-900">{selected.resident}</p>
+                    {/* Header — always the resident whose profile is open
+                        (`profileResidentName`), NOT the inbox-selected
+                        conversation's resident. When the profile is
+                        overridden to a linked resident (multi-profile
+                        picker), the new-thread surface should target that
+                        resident, not the outer inbox conversation. */}
+                    <p className="text-[13px] font-semibold text-gray-900">{profileResidentName}</p>
                     <p className="text-[11px] text-gray-500">
                       {openThreadIdx === -1
                         ? newThreadOutbound
@@ -10962,42 +11112,6 @@ function ConversationsContent() {
                   </button>
                 </div>
 
-                {openThreadIdx === -1 && newThreadOutbound?.from && (
-                  <div className="shrink-0 border-b border-gray-200 bg-gray-50 px-4 py-2.5">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">From</p>
-                    <p className="text-[12px] font-medium text-gray-900 mt-0.5 tabular-nums">{newThreadOutbound.from}</p>
-                    <p className="text-[10px] text-gray-500 mt-0.5">
-                      {newThreadOutbound.channel === "SMS"
-                        ? "Property SMS vanity"
-                        : "Property email"}{" "}
-                      · {newThreadOutbound.propertyName}
-                    </p>
-                  </div>
-                )}
-
-                {openThreadIdx === -1 && newThreadOutbound?.channel === "Email" && (
-                  <div className="shrink-0 border-b border-gray-200 bg-white px-4 py-2">
-                    <label className={cn("text-[10px] font-semibold uppercase tracking-wide", newThreadSubjectError ? "text-red-600" : "text-gray-500")}>
-                      Subject {newThreadSubjectError && <span className="normal-case tracking-normal font-medium">— required before sending</span>}
-                    </label>
-                    <input
-                      type="text"
-                      value={newThreadSubject}
-                      onChange={(e) => {
-                        setNewThreadSubject(e.target.value);
-                        if (newThreadSubjectError && e.target.value.trim()) setNewThreadSubjectError(false);
-                      }}
-                      placeholder="Enter email subject…"
-                      className={cn(
-                        "mt-1 w-full rounded-md border bg-background px-2.5 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1",
-                        newThreadSubjectError
-                          ? "border-red-400 ring-1 ring-red-300 focus:ring-red-400"
-                          : "border-input focus:ring-ring"
-                      )}
-                    />
-                  </div>
-                )}
-
                 {/* Messages area — same style as inbox conversation panel */}
                 <div className="flex-1 overflow-y-auto bg-muted/30 px-4 py-4">
                   <div className="space-y-4">
@@ -11033,7 +11147,7 @@ function ConversationsContent() {
                               <span className="font-semibold">
                                 New {newThreadOutbound.channel} · not yet saved.
                               </span>{" "}
-                              Outbound messages will send from{" "}
+                              This {newThreadOutbound.channel === "SMS" ? "SMS" : "email"} will send from{" "}
                               <span className="font-medium">
                                 {newThreadOutbound.from}
                               </span>
@@ -11171,7 +11285,21 @@ function ConversationsContent() {
                         </div>
                       );
                     })}
-                    {selected.messages.some(
+                    {/*
+                      Conversation activity — the current inbox conversation's
+                      thread/label activity items (escalation added,
+                      follow-up-reminder fired, etc). Rendered as context so
+                      staff see recent activity while replying inside an
+                      existing side thread.
+
+                      Hidden in NEW-thread mode (`openThreadIdx === -1`)
+                      because a fresh SMS/Email compose should be a clean
+                      surface — just the amber "New Email · not yet saved"
+                      banner + the composer. Mixing in the current inbox
+                      thread's activity here reads as noise on a brand-new
+                      outbound thread.
+                    */}
+                    {openThreadIdx !== -1 && selected.messages.some(
                       (m) => m.type === "thread_activity" || m.type === "label_activity"
                     ) ? (
                       <div className="space-y-2 border-t border-border/60 pt-3">
@@ -11196,21 +11324,34 @@ function ConversationsContent() {
                             }
                             if (m.type === "label_activity" && m.labelActivity) {
                               const { actor, labelsAdded } = m.labelActivity;
+                              const isEscalation = labelsAdded.some((l) => l.includes("Escalation"));
                               return (
                                 <div
                                   key={`ent-act-la-${actIdx}`}
-                                  className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border/70 bg-muted/25 py-2 px-2"
+                                  className={cn(
+                                    "flex items-center justify-center gap-2 rounded-md border py-2 px-2",
+                                    isEscalation
+                                      ? "border-orange-200 bg-orange-50/80 dark:border-orange-900/50 dark:bg-orange-950/20"
+                                      : "border-dashed border-border/70 bg-muted/25"
+                                  )}
                                 >
-                                  <Tag className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
-                                  <p className="text-center text-[10px] leading-relaxed text-muted-foreground">
-                                    <span className="font-medium text-foreground">{actor}</span>
+                                  {isEscalation ? (
+                                    <AlertTriangle className="h-3 w-3 shrink-0 text-orange-500" aria-hidden />
+                                  ) : (
+                                    <Tag className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+                                  )}
+                                  <p className={cn(
+                                    "text-center text-[10px] leading-relaxed",
+                                    isEscalation ? "text-orange-800 dark:text-orange-200" : "text-muted-foreground"
+                                  )}>
+                                    <span className={cn("font-medium", isEscalation ? "text-orange-900 dark:text-orange-100" : "text-foreground")}>{actor}</span>
                                     {" added "}
-                                    <span className="font-medium text-foreground">
+                                    <span className={cn("font-medium", isEscalation ? "text-orange-900 dark:text-orange-100" : "text-foreground")}>
                                       {labelsAdded.join(", ")}
                                     </span>
                                     {m.timestamp && (
                                       <>
-                                        <span className="text-muted-foreground/70"> · </span>
+                                        <span className={cn(isEscalation ? "opacity-60" : "text-muted-foreground/70")}> · </span>
                                         <span>{m.timestamp}</span>
                                       </>
                                     )}
@@ -11227,6 +11368,113 @@ function ConversationsContent() {
 
                 {/* Chat input — same style as inbox */}
                 <div className="shrink-0 bg-muted/50">
+                  {/* SA 1.0 / SA 1.2 escalation-reply picker — same gate
+                      the main-pane composer enforces (see the picker at
+                      the top of the main composer). Rendered here in a
+                      compact single-column layout tuned for the 320px
+                      profile side rail: label + tooltip on top, pills
+                      wrapped below. Only shown for message mode on an
+                      SA 1.0/1.2 thread that actually has active
+                      escalation labels. */}
+                  {selected &&
+                    threadInputMode === "message" &&
+                    (isSuperAgent1DemoThread(selected.id) ||
+                      (superAgent12Enabled && !isSuperAgentDemoThread(selected.id))) &&
+                    selected.labels.some((l) => l.includes("Escalation")) && (() => {
+                      const sa1Escalations = selected.labels.filter((l) => l.includes("Escalation"));
+                      const selectedCount = selectedEscalationTypes.size;
+                      const isError = escalationError && selectedCount === 0;
+                      return (
+                        <div className="px-4 pt-2">
+                          <div
+                            className={cn(
+                              "rounded-md border px-2 py-1.5 transition-all",
+                              isError
+                                ? "border-red-400 bg-red-50 dark:border-red-600 dark:bg-red-950/20"
+                                : "border-orange-300 bg-orange-50/70 dark:border-orange-700/60 dark:bg-orange-950/20"
+                            )}
+                          >
+                            <div className="mb-1 flex items-center gap-1">
+                              <span
+                                className={cn(
+                                  "flex items-center gap-1 text-[10px] font-semibold leading-tight",
+                                  isError
+                                    ? "text-red-700 dark:text-red-300"
+                                    : "text-orange-800 dark:text-orange-200"
+                                )}
+                              >
+                                {isError && <AlertTriangle className="h-3 w-3 animate-pulse" />}
+                                {isError
+                                  ? "Pick an escalation before sending:"
+                                  : `Which escalation(s) does this reply address? (${selectedCount}/${sa1Escalations.length})`}
+                              </span>
+                              {selectedCount > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedEscalationTypes(new Set());
+                                    if (selected) superAgentSelectionsRef.current.set(selected.id, new Set());
+                                  }}
+                                  className="ml-auto rounded px-1 py-0.5 text-[10px] font-medium text-orange-700 transition-colors hover:bg-orange-200/50 dark:text-orange-300 dark:hover:bg-orange-900/40"
+                                >
+                                  Clear
+                                </button>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1">
+                              {sa1Escalations.map((label) => {
+                                const isSelected = selectedEscalationTypes.has(label);
+                                return (
+                                  <button
+                                    key={label}
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedEscalationTypes((prev) => {
+                                        const next = new Set(prev);
+                                        if (next.has(label)) next.delete(label);
+                                        else next.add(label);
+                                        if (selected) superAgentSelectionsRef.current.set(selected.id, next);
+                                        return next;
+                                      });
+                                      setEscalationError(false);
+                                    }}
+                                    className={cn(
+                                      "flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold transition-all",
+                                      isSelected
+                                        ? "border-orange-500 bg-orange-500 text-white shadow-sm dark:border-orange-400 dark:bg-orange-500"
+                                        : isError
+                                          ? "border-red-400 bg-white text-red-700 animate-pulse dark:border-red-600 dark:bg-card dark:text-red-300"
+                                          : "border-orange-300 bg-white text-orange-800 hover:border-orange-500 hover:bg-orange-100/60 dark:border-orange-700 dark:bg-card dark:text-orange-200 dark:hover:bg-orange-950/40"
+                                    )}
+                                  >
+                                    <span
+                                      className={cn(
+                                        "flex h-2.5 w-2.5 shrink-0 items-center justify-center rounded-sm border",
+                                        isSelected
+                                          ? "border-white bg-white text-orange-600"
+                                          : isError
+                                            ? "border-red-400"
+                                            : "border-orange-400"
+                                      )}
+                                    >
+                                      {isSelected && <Check className="h-2 w-2 stroke-[3]" />}
+                                    </span>
+                                    {label.replace(" Escalation", "").replace(/\s+\d+$/, "")}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  {/* SA 1.2 demo: Phone = "Opt Out" SMS block banner —
+                      compact 320px-side-rail variant of the main-pane
+                      version above. Renders whenever the profile-panel
+                      composer's active channel is SMS (either a brand-
+                      new SMS via `newThreadOutbound` or a side-thread
+                      SMS row via `profilePanelThreads[openThreadIdx]`)
+                      and the contact is Opt Out. */}
                   <div className="flex items-center gap-1 px-4 pt-2 pb-1">
                     <Button
                       variant={threadInputMode === "message" ? "default" : "ghost"}
@@ -11251,28 +11499,104 @@ function ConversationsContent() {
                       Private Note
                     </Button>
                   </div>
+                  {(() => {
+                    // SA 1.2 demo: resolve composer channel once so both
+                    // the container border and the textarea/alert branch
+                    // stay consistent.
+                    const composerChannel =
+                      openThreadIdx === -1
+                        ? newThreadOutbound?.channel
+                        : openThreadIdx !== null && openThreadIdx >= 0
+                          ? profilePanelThreads[openThreadIdx]?.channel
+                          : undefined;
+                    const profileThreadSmsBlocked =
+                      smsBlockedByOptOut &&
+                      threadInputMode === "message" &&
+                      composerChannel === "SMS";
+                    return (
                   <div className="px-4 pb-3">
                     <div
                       className={cn(
                         "flex flex-col rounded-xl border transition-colors focus-within:ring-1 focus-within:ring-ring",
-                        threadInputMode === "private_note"
-                          ? "border-amber-200 bg-amber-50"
-                          : "border-input bg-background"
+                        profileThreadSmsBlocked
+                          ? "border-red-300 bg-red-50/60 focus-within:ring-red-300 dark:border-red-700/60 dark:bg-red-950/20"
+                          : threadInputMode === "private_note"
+                            ? "border-amber-200 bg-amber-50"
+                            : "border-input bg-background"
                       )}
                     >
-                      <textarea
-                        value={threadDraft}
-                        onChange={(e) => setThreadDraft(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && !e.shiftKey) {
-                            e.preventDefault();
-                            handleProfileEntThreadSend();
+                      {/* Subject line — only for a brand-new Email
+                          thread in message mode. Sits INSIDE the
+                          rounded-xl composer shell above the body
+                          textarea, mirroring the Communications-tab
+                          inline Email composer's layout (see
+                          `entrata-inline-email-composer.tsx`). */}
+                      {openThreadIdx === -1 &&
+                        newThreadOutbound?.channel === "Email" &&
+                        threadInputMode === "message" && (
+                        <input
+                          type="text"
+                          value={newThreadSubject}
+                          onChange={(e) => {
+                            setNewThreadSubject(e.target.value);
+                            if (
+                              newThreadSubjectError &&
+                              e.target.value.trim()
+                            )
+                              setNewThreadSubjectError(false);
+                          }}
+                          placeholder="Subject"
+                          aria-label="Subject"
+                          className={cn(
+                            "w-full bg-transparent px-3 pt-2.5 pb-2 text-[12px] font-medium placeholder:text-muted-foreground focus-visible:outline-none border-b",
+                            newThreadSubjectError
+                              ? "border-red-300"
+                              : "border-border/60"
+                          )}
+                        />
+                      )}
+                      {profileThreadSmsBlocked ? (
+                        // SA 1.2 demo: inline red block message replaces
+                        // the textarea when SMS is blocked-by-opt-out.
+                        // Compact variant sized for the 320px right
+                        // rail.
+                        <div className="flex items-start gap-1.5 px-3 py-2.5 text-[11px] leading-relaxed text-red-800 dark:text-red-200">
+                          <CircleAlert
+                            className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-600 dark:text-red-400"
+                            strokeWidth={2}
+                            aria-hidden
+                          />
+                          <div className="min-w-0">
+                            <p className="font-semibold">
+                              Can&apos;t send SMS &mdash; marked{" "}
+                              <span className="uppercase">Opt Out</span>.
+                            </p>
+                            <p className="mt-0.5 text-[10px] text-red-700/90 dark:text-red-300/90">
+                              Get a verbal opt-in from {profileResidentName}{" "}
+                              first, then flip Contact Preferences to Opt
+                              In.
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <textarea
+                          value={threadDraft}
+                          onChange={(e) => setThreadDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) {
+                              e.preventDefault();
+                              handleProfileEntThreadSend();
+                            }
+                          }}
+                          placeholder={
+                            threadInputMode === "private_note"
+                              ? "Write a private note…"
+                              : "Write a message…"
                           }
-                        }}
-                        placeholder={threadInputMode === "private_note" ? "Write a private note…" : "Write a message…"}
-                        rows={2}
-                        className="w-full resize-none bg-transparent px-3 pt-2.5 pb-1 text-[12px] placeholder:text-muted-foreground focus-visible:outline-none"
-                      />
+                          rows={2}
+                          className="w-full resize-none bg-transparent px-3 pt-2.5 pb-1 text-[12px] placeholder:text-muted-foreground focus-visible:outline-none"
+                        />
+                      )}
                       <div className="flex items-center justify-between px-2 pb-1.5">
                         <Button variant="ghost" size="sm" className="gap-1 text-[10px] text-muted-foreground h-7">
                           <Paperclip className="h-3 w-3" />
@@ -11285,7 +11609,10 @@ function ConversationsContent() {
                             "h-7 w-7 rounded-full",
                             threadInputMode === "private_note" && "bg-amber-600 hover:bg-amber-700"
                           )}
-                          disabled={!threadDraft.trim()}
+                          disabled={
+                            !threadDraft.trim() ||
+                            profileThreadSmsBlocked
+                          }
                           onClick={handleProfileEntThreadSend}
                           aria-label="Send"
                         >
@@ -11294,6 +11621,8 @@ function ConversationsContent() {
                       </div>
                     </div>
                   </div>
+                    );
+                  })()}
                 </div>
               </>
             ) : profilePanelInboxOpen ? (
@@ -11453,20 +11782,59 @@ function ConversationsContent() {
                         );
                       }
                       if (msg.type === "label_activity" && msg.labelActivity) {
-                        const { actor, labelsAdded } = msg.labelActivity;
+                        const { actor, labelsAdded, action } = msg.labelActivity;
+                        const isEscalation = labelsAdded.some((l) => l.includes("Escalation"));
+                        // "Resolved escalation" activity gets the green
+                        // resolved treatment — mirrors the main-pane
+                        // renderer at ~line 8460 so the profile-panel
+                        // timeline reads the same after the SA 1.2
+                        // Eli-Prompt commit path stamps a resolve.
+                        if (action === "resolved_escalation") {
+                          return (
+                            <div
+                              key={idx}
+                              className="flex items-center justify-center gap-2 rounded-md border border-emerald-200 bg-emerald-50/80 py-2 px-2 dark:border-emerald-900/50 dark:bg-emerald-950/20"
+                            >
+                              <Check className="h-3 w-3 shrink-0 text-emerald-600" aria-hidden />
+                              <p className="text-center text-[10px] leading-relaxed text-emerald-800 dark:text-emerald-200">
+                                <span className="font-medium text-emerald-900 dark:text-emerald-100">{actor}</span>
+                                {" resolved "}
+                                <span className="font-medium text-emerald-900 dark:text-emerald-100">{labelsAdded.join(", ")}</span>
+                                {msg.timestamp && (
+                                  <>
+                                    <span className="opacity-60"> · </span>
+                                    <span>{msg.timestamp}</span>
+                                  </>
+                                )}
+                              </p>
+                            </div>
+                          );
+                        }
                         return (
                           <div
                             key={idx}
-                            className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border/70 bg-muted/25 py-2 px-2"
+                            className={cn(
+                              "flex items-center justify-center gap-2 rounded-md border py-2 px-2",
+                              isEscalation
+                                ? "border-orange-200 bg-orange-50/80 dark:border-orange-900/50 dark:bg-orange-950/20"
+                                : "border-dashed border-border/70 bg-muted/25"
+                            )}
                           >
-                            <Tag className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
-                            <p className="text-center text-[10px] leading-relaxed text-muted-foreground">
-                              <span className="font-medium text-foreground">{actor}</span>
+                            {isEscalation ? (
+                              <AlertTriangle className="h-3 w-3 shrink-0 text-orange-500" aria-hidden />
+                            ) : (
+                              <Tag className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+                            )}
+                            <p className={cn(
+                              "text-center text-[10px] leading-relaxed",
+                              isEscalation ? "text-orange-800 dark:text-orange-200" : "text-muted-foreground"
+                            )}>
+                              <span className={cn("font-medium", isEscalation ? "text-orange-900 dark:text-orange-100" : "text-foreground")}>{actor}</span>
                               {" added "}
-                              <span className="font-medium text-foreground">{labelsAdded.join(", ")}</span>
+                              <span className={cn("font-medium", isEscalation ? "text-orange-900 dark:text-orange-100" : "text-foreground")}>{labelsAdded.join(", ")}</span>
                               {msg.timestamp && (
                                 <>
-                                  <span className="text-muted-foreground/70"> · </span>
+                                  <span className={cn(isEscalation ? "opacity-60" : "text-muted-foreground/70")}> · </span>
                                   <span>{msg.timestamp}</span>
                                 </>
                               )}
@@ -11569,6 +11937,107 @@ function ConversationsContent() {
                 </div>
 
                 <div className="shrink-0 bg-muted/50 border-t border-gray-200">
+                  {/* SA 1.0 / SA 1.2 escalation-reply picker — same gate
+                      the main-pane composer enforces (see the picker at
+                      the top of the main composer). Rendered here in a
+                      compact single-column layout tuned for the 320px
+                      profile side rail. This composer shares main-pane
+                      state (`inputMode`, `selectedEscalationTypes`,
+                      `handleSend`), so the gate on `handleSend` already
+                      fires — we just need the visual UI so staff can
+                      pick escalations before Send. */}
+                  {selected &&
+                    inputMode === "message" &&
+                    (isSuperAgent1DemoThread(selected.id) ||
+                      (superAgent12Enabled && !isSuperAgentDemoThread(selected.id))) &&
+                    selected.labels.some((l) => l.includes("Escalation")) && (() => {
+                      const sa1Escalations = selected.labels.filter((l) => l.includes("Escalation"));
+                      const selectedCount = selectedEscalationTypes.size;
+                      const isError = escalationError && selectedCount === 0;
+                      return (
+                        <div className="px-4 pt-2">
+                          <div
+                            className={cn(
+                              "rounded-md border px-2 py-1.5 transition-all",
+                              isError
+                                ? "border-red-400 bg-red-50 dark:border-red-600 dark:bg-red-950/20"
+                                : "border-orange-300 bg-orange-50/70 dark:border-orange-700/60 dark:bg-orange-950/20"
+                            )}
+                          >
+                            <div className="mb-1 flex items-center gap-1">
+                              <span
+                                className={cn(
+                                  "flex items-center gap-1 text-[10px] font-semibold leading-tight",
+                                  isError
+                                    ? "text-red-700 dark:text-red-300"
+                                    : "text-orange-800 dark:text-orange-200"
+                                )}
+                              >
+                                {isError && <AlertTriangle className="h-3 w-3 animate-pulse" />}
+                                {isError
+                                  ? "Pick an escalation before sending:"
+                                  : `Which escalation(s) does this reply address? (${selectedCount}/${sa1Escalations.length})`}
+                              </span>
+                              {selectedCount > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedEscalationTypes(new Set());
+                                    if (selected) superAgentSelectionsRef.current.set(selected.id, new Set());
+                                  }}
+                                  className="ml-auto rounded px-1 py-0.5 text-[10px] font-medium text-orange-700 transition-colors hover:bg-orange-200/50 dark:text-orange-300 dark:hover:bg-orange-900/40"
+                                >
+                                  Clear
+                                </button>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1">
+                              {sa1Escalations.map((label) => {
+                                const isSelected = selectedEscalationTypes.has(label);
+                                return (
+                                  <button
+                                    key={label}
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedEscalationTypes((prev) => {
+                                        const next = new Set(prev);
+                                        if (next.has(label)) next.delete(label);
+                                        else next.add(label);
+                                        if (selected) superAgentSelectionsRef.current.set(selected.id, next);
+                                        return next;
+                                      });
+                                      setEscalationError(false);
+                                    }}
+                                    className={cn(
+                                      "flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold transition-all",
+                                      isSelected
+                                        ? "border-orange-500 bg-orange-500 text-white shadow-sm dark:border-orange-400 dark:bg-orange-500"
+                                        : isError
+                                          ? "border-red-400 bg-white text-red-700 animate-pulse dark:border-red-600 dark:bg-card dark:text-red-300"
+                                          : "border-orange-300 bg-white text-orange-800 hover:border-orange-500 hover:bg-orange-100/60 dark:border-orange-700 dark:bg-card dark:text-orange-200 dark:hover:bg-orange-950/40"
+                                    )}
+                                  >
+                                    <span
+                                      className={cn(
+                                        "flex h-2.5 w-2.5 shrink-0 items-center justify-center rounded-sm border",
+                                        isSelected
+                                          ? "border-white bg-white text-orange-600"
+                                          : isError
+                                            ? "border-red-400"
+                                            : "border-orange-400"
+                                      )}
+                                    >
+                                      {isSelected && <Check className="h-2 w-2 stroke-[3]" />}
+                                    </span>
+                                    {label.replace(" Escalation", "").replace(/\s+\d+$/, "")}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   <div className="flex items-center gap-1 px-4 pt-2 pb-1">
                     <Button
                       variant={inputMode === "message" ? "default" : "ghost"}
@@ -11596,9 +12065,17 @@ function ConversationsContent() {
                     <div
                       className={cn(
                         "relative flex flex-col rounded-xl border transition-colors focus-within:ring-1 focus-within:ring-ring",
-                        inputMode === "private_note"
-                          ? "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20"
-                          : "border-input bg-background"
+                        // SA 1.2 demo: SMS-blocked-by-opt-out red-tints
+                        // the composer container so the inline block
+                        // message reads as one loud affordance.
+                        selected &&
+                          selected.channel === "SMS" &&
+                          inputMode === "message" &&
+                          smsBlockedByOptOut
+                          ? "border-red-300 bg-red-50/60 focus-within:ring-red-300 dark:border-red-700/60 dark:bg-red-950/20"
+                          : inputMode === "private_note"
+                            ? "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20"
+                            : "border-input bg-background"
                       )}
                     >
                       {inputMode === "private_note" &&
@@ -11651,38 +12128,65 @@ function ConversationsContent() {
                             No matching staff
                           </div>
                         ) : null)}
-                      <textarea
-                        ref={profilePanelInboxComposerRef}
-                        value={draft}
-                        onChange={handleComposerDraftChange}
-                        onSelect={(e) => {
-                          if (inputMode === "private_note") {
-                            syncPrivateNoteMentionFromTextarea(e.currentTarget);
+                      {selected &&
+                      selected.channel === "SMS" &&
+                      inputMode === "message" &&
+                      smsBlockedByOptOut ? (
+                        // SA 1.2 demo: inline red block message replaces
+                        // the textarea when SMS is blocked. Sized for
+                        // the 320px profile-panel right rail.
+                        <div className="flex items-start gap-1.5 px-3 py-2.5 text-[11px] leading-relaxed text-red-800 dark:text-red-200">
+                          <CircleAlert
+                            className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-600 dark:text-red-400"
+                            strokeWidth={2}
+                            aria-hidden
+                          />
+                          <div className="min-w-0">
+                            <p className="font-semibold">
+                              Can&apos;t send SMS &mdash; marked{" "}
+                              <span className="uppercase">Opt Out</span>.
+                            </p>
+                            <p className="mt-0.5 text-[10px] text-red-700/90 dark:text-red-300/90">
+                              Get a verbal opt-in from {profileResidentName}{" "}
+                              first, then flip Contact Preferences to Opt
+                              In.
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <textarea
+                          ref={profilePanelInboxComposerRef}
+                          value={draft}
+                          onChange={handleComposerDraftChange}
+                          onSelect={(e) => {
+                            if (inputMode === "private_note") {
+                              syncPrivateNoteMentionFromTextarea(e.currentTarget);
+                            }
+                          }}
+                          onKeyUp={(e) => {
+                            if (inputMode === "private_note") {
+                              syncPrivateNoteMentionFromTextarea(e.currentTarget);
+                            }
+                          }}
+                          onKeyDown={handleComposerKeyDown}
+                          placeholder={
+                            inputMode === "private_note"
+                              ? "Write a private note…"
+                              : "Write a message…"
                           }
-                        }}
-                        onKeyUp={(e) => {
-                          if (inputMode === "private_note") {
-                            syncPrivateNoteMentionFromTextarea(e.currentTarget);
+                          rows={2}
+                          className="w-full resize-none bg-transparent px-3 pt-2.5 pb-1 text-[12px] placeholder:text-muted-foreground focus-visible:outline-none"
+                          aria-label={inputMode === "private_note" ? "Private note" : "Message"}
+                          aria-autocomplete={inputMode === "private_note" ? "list" : undefined}
+                          aria-haspopup={inputMode === "private_note" ? "listbox" : undefined}
+                          aria-expanded={
+                            inputMode === "private_note" && !!privateNoteMention
+                              ? privateNoteMentionFiltered.length > 0 ||
+                                privateNoteMention.query.length > 0
+                              : undefined
                           }
-                        }}
-                        onKeyDown={handleComposerKeyDown}
-                        placeholder={
-                          inputMode === "private_note"
-                            ? "Write a private note…"
-                            : "Write a message…"
-                        }
-                        rows={2}
-                        className="w-full resize-none bg-transparent px-3 pt-2.5 pb-1 text-[12px] placeholder:text-muted-foreground focus-visible:outline-none"
-                        aria-label={inputMode === "private_note" ? "Private note" : "Message"}
-                        aria-autocomplete={inputMode === "private_note" ? "list" : undefined}
-                        aria-haspopup={inputMode === "private_note" ? "listbox" : undefined}
-                        aria-expanded={
-                          inputMode === "private_note" && !!privateNoteMention
-                            ? privateNoteMentionFiltered.length > 0 ||
-                              privateNoteMention.query.length > 0
-                            : undefined
-                        }
-                      />
+                        />
+                      )}
                       <div className="flex items-center justify-between px-2 pb-1.5">
                         <Button
                           variant="ghost"
@@ -11699,7 +12203,16 @@ function ConversationsContent() {
                             "h-7 w-7 rounded-full",
                             inputMode === "private_note" && "bg-amber-600 hover:bg-amber-700"
                           )}
-                          disabled={!hasSendableDraft}
+                          disabled={
+                            !hasSendableDraft ||
+                            // SA 1.2 demo: SMS-blocked-by-opt-out disables
+                            // Send when this profile-panel composer is
+                            // targeting an active SMS thread.
+                            (smsBlockedByOptOut &&
+                              !!selected &&
+                              selected.channel === "SMS" &&
+                              inputMode === "message")
+                          }
                           onClick={handleSend}
                           aria-label="Send"
                         >
@@ -11854,27 +12367,22 @@ function ConversationsContent() {
                         })}
                   </div>
                   {/* Email / SMS quick-compose buttons.
-                      Replaces the previous "New Thread" button + dialog
-                      flow with the same two-channel action the Entrata
-                      global search exposes on every row. Each button:
-                        · If the resident already has an active thread on
-                          the chosen channel (matched by resident +
-                          property, with SMS also matching Voice threads
-                          that grew an SMS `additionalChannels` entry),
-                          we jump straight into that thread — no
-                          duplicate-thread creation, mirroring the
-                          top-nav's `onOpenSmsThread` handler.
-                        · Otherwise we synthesize an EntrataSearchResult
-                          for the current profile and set the matching
-                          `pending{Sms,Email}Compose` slot, so the
-                          shared `EntrataInline{Sms,Email}Composer` takes
-                          over the main right pane exactly like the
-                          search-bar row action does. The sibling slot
-                          is cleared so the freshest click wins the
-                          right-pane render priority.
-                      In both branches we close the profile side panel
-                      (`threadsPanelOpen` / `profilePanelInboxOpen`) so
-                      the composer / thread is fully visible. */}
+                      Each button opens the profile curtain's right-side
+                      new-thread composer with the chosen channel
+                      pre-locked — matching the "New SMS · not yet
+                      saved" / "New Email · not yet saved" surface the
+                      Communications tab shows when creating a fresh
+                      thread. We stay inside the curtain (the profile
+                      pane on the left remains visible), just swap the
+                      right rail into new-thread mode:
+                        · `openThreadIdx = -1` puts the panel in
+                          new-thread mode
+                        · `newThreadOutbound` locks the channel +
+                          FROM branding (property vanity number/email
+                          when available)
+                        · `pending{Sms,Email}Compose` is cleared so the
+                          hidden main-pane composer doesn't race with
+                          the in-curtain one. */}
                   <div className="mt-5 flex flex-wrap items-center gap-2">
                     {(
                       [
@@ -11886,69 +12394,7 @@ function ConversationsContent() {
                         key={channel}
                     type="button"
                         className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-5 py-1.5 text-[13px] font-medium text-gray-600 transition-colors hover:bg-gray-50"
-                    onClick={() => {
-                          const existing = conversations.find((c) => {
-                            if (c.resident !== selected.resident) return false;
-                            if (c.property !== selected.property) return false;
-                            if (channel === "Email") return c.channel === "Email";
-                            return (
-                              c.channel === "SMS" ||
-                              (c.additionalChannels ?? []).includes("SMS")
-                            );
-                          });
-
-                          // Close the profile side panel + reset any
-                          // in-panel new-thread state that the legacy
-                          // dialog flow relied on so nothing lingers
-                          // when we bail out to the main right pane.
-                          setThreadsPanelOpen(false);
-                          setProfilePanelInboxOpen(false);
-                          setOpenThreadIdx(null);
-                          setNewThreadOutbound(null);
-                          setNewThreadSubject("");
-                          setNewThreadSubjectError(false);
-
-                          if (existing) {
-                            setPendingSmsCompose(null);
-                            setPendingEmailCompose(null);
-                            setSelectedId(existing.id);
-                            markRead(existing.id, MY_INBOX_ASSIGNEE);
-                            return;
-                          }
-
-                          const { residentPhone } =
-                            getVoiceOrSmsThreadRoutingNumbers(
-                              selected.resident,
-                              selected.property,
-                            );
-                          const { residentEmail } =
-                            getEmailThreadRoutingAddresses(
-                              selected.resident,
-                              selected.property,
-                            );
-                          const recipient: EntrataSearchResult = {
-                            id: `profile-panel-${selected.id}-${channel.toLowerCase()}`,
-                            name: selected.resident,
-                            role: "Primary",
-                            type:
-                              selected.contactType === "Lead"
-                                ? "Lead"
-                                : "Resident",
-                            bldgUnit: selected.unit ?? "-",
-                            property: selected.property,
-                            status: "",
-                            email: residentEmail,
-                            phone: residentPhone,
-                            otherResults: [],
-                          };
-                          if (channel === "Email") {
-                            setPendingSmsCompose(null);
-                            setPendingEmailCompose(recipient);
-                          } else {
-                            setPendingEmailCompose(null);
-                            setPendingSmsCompose(recipient);
-                          }
-                        }}
+                        onClick={() => openNewThreadInPanel(channel)}
                       >
                         <Icon
                           className="h-3.5 w-3.5 text-gray-400"

@@ -52,6 +52,8 @@ import type { Result } from "@/components/app-shell/entrata-global-search";
 export function EntrataInlineSmsComposer({
   recipient,
   onNameClick,
+  blocked = false,
+  blockedResidentName,
 }: {
   recipient: Result;
   /**
@@ -65,6 +67,17 @@ export function EntrataInlineSmsComposer({
    * draft.
    */
   onNameClick?: (draft: string) => void;
+  /**
+   * SA 1.2 demo: when the parent detects the recipient's Contact Preference
+   * for Phone is "Opt Out" AND Super Agent 1.2 is on, it flips this to true.
+   * The composer renders a red banner explaining why the SMS can't be sent
+   * (needs a verbal opt-in) and disables the Send button. The rest of the
+   * shell (header, empty state, tab bar, textarea) stays visible so staff
+   * can still see and cancel out of the surface.
+   */
+  blocked?: boolean;
+  /** Recipient display name used in the block banner copy. */
+  blockedResidentName?: string;
 }) {
   const router = useRouter();
   const { addConversation, setPendingSmsCompose } = useConversations();
@@ -102,7 +115,14 @@ export function EntrataInlineSmsComposer({
   // shell. Private Note is visible for parity with real threads but
   // starting a conversation via private note isn't a real flow, so
   // we short-circuit Send unless we're in Message mode.
-  const canSend = trimmed.length > 0 && inputMode === "message";
+  //
+  // `blocked` (SA 1.2 demo: Phone = "Opt Out") hard-disables Send in
+  // Message mode — Private Note stays enabled because it's an internal
+  // staff-only annotation, not an outbound SMS.
+  const canSend =
+    trimmed.length > 0 &&
+    inputMode === "message" &&
+    !blocked;
 
   // "Abel, Ann" → "Ann"; fall back gracefully for any name that
   // isn't in "Last, First" form.
@@ -249,11 +269,40 @@ export function EntrataInlineSmsComposer({
           <div
             className={cn(
               "relative flex flex-col rounded-xl border transition-colors focus-within:ring-1 focus-within:ring-ring",
-              inputMode === "private_note"
-                ? "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20"
-                : "border-input bg-background",
+              // SA 1.2 demo: SMS-blocked-by-opt-out red-tints the
+              // composer container so the inline block message reads
+              // as one loud affordance (no separate banner).
+              blocked && inputMode === "message"
+                ? "border-red-300 bg-red-50/60 focus-within:ring-red-300 dark:border-red-700/60 dark:bg-red-950/20"
+                : inputMode === "private_note"
+                  ? "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20"
+                  : "border-input bg-background",
             )}
           >
+            {blocked && inputMode === "message" ? (
+              // SA 1.2 demo: inline red block message replaces the
+              // textarea when SMS is blocked. Private notes stay in
+              // the textarea flow because the block doesn't apply.
+              <div className="flex items-start gap-2 px-4 py-3 text-[13px] leading-relaxed text-red-800 dark:text-red-200">
+                <CircleAlert
+                  className="mt-0.5 h-4 w-4 shrink-0 text-red-600 dark:text-red-400"
+                  strokeWidth={2}
+                  aria-hidden
+                />
+                <div className="min-w-0">
+                  <p className="font-semibold">
+                    Can&apos;t send SMS &mdash;{" "}
+                    {blockedResidentName ?? recipient.name} is marked{" "}
+                    <span className="uppercase">Opt Out</span>.
+                  </p>
+                  <p className="mt-0.5 text-[12px] text-red-700/90 dark:text-red-300/90">
+                    You need a verbal opt-in from them before you can text
+                    this number. Update Contact Preferences to Opt In once
+                    you&apos;ve confirmed.
+                  </p>
+                </div>
+              </div>
+            ) : (
             <textarea
               ref={textareaRef}
               value={draft}
@@ -275,6 +324,7 @@ export function EntrataInlineSmsComposer({
                 inputMode === "private_note" ? "Private note" : "Message"
               }
             />
+            )}
             <div className="flex items-center justify-between px-3 pb-2">
               <div className="flex items-center gap-1">
                 <Button
