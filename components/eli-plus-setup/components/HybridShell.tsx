@@ -5,7 +5,6 @@ import type { SimMode } from "../pages/CompanyPage"
 import {
   Building2,
   Mail,
-  Phone,
   PhoneForwarded,
   Rocket,
   CheckCircle2,
@@ -25,7 +24,6 @@ const BASE_SUB_ITEMS = [
   { id: "privacy"            as PageId, label: "Property Websites",         icon: ShieldCheck,     taskIds: [] as string[], indent: false },
   { id: "email"              as PageId, label: "Email Integration",         icon: Mail,            taskIds: [] as string[], indent: false },
   { id: "ivr-setup"          as PageId, label: "IVR Setup",                 icon: PhoneForwarded,  taskIds: [] as string[], indent: false },
-  { id: "communications"     as PageId, label: "Communications",            icon: Phone,           taskIds: [] as string[], indent: false },
 ]
 
 const GO_LIVE_SUB_ITEM = { id: "comms-go-live" as PageId, label: "Go Live", icon: Zap, taskIds: [] as string[], indent: false }

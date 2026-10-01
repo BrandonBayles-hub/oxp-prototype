@@ -473,7 +473,7 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
   const markEliPromptShown = useCallback((threadId: string) => {
     setEliPromptShownAt((prev) => ({ ...prev, [threadId]: Date.now() }));
   }, []);
-  const [goLiveAutomationEnabled, setGoLiveAutomationEnabled] = useState(false);
+  const [goLiveAutomationEnabled, setGoLiveAutomationEnabled] = useState(true);
   const [activatedPropertyIds, setActivatedPropertyIds] = useState<Set<string>>(new Set());
   const toggleGoLiveAutomationEnabled = useCallback(() => {
     setGoLiveAutomationEnabled((v) => !v);

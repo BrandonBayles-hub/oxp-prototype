@@ -53,8 +53,17 @@ const academyCssAliases = {
 // will NOT include the live-LLM route).
 const staticExport = process.env.STATIC_EXPORT === "1";
 
+// Project Pages (brandonbayles-hub.github.io/oxp-prototype/) needs this prefix.
+// proto.yml sets NEXT_PUBLIC_BASE_PATH. Empty on local dev and on a user-site root.
+// Next prefixes assets with basePath, so assetPrefix is the same path (no extra slash).
+const pagesBasePath = (process.env.NEXT_PUBLIC_BASE_PATH || "").replace(/\/$/, "");
+
 const nextConfig: NextConfig = {
   ...(staticExport ? { output: "export" as const } : {}),
+  ...(pagesBasePath
+    ? { basePath: pagesBasePath, assetPrefix: pagesBasePath }
+    : {}),
+  ...(staticExport ? { images: { unoptimized: true } } : {}),
   trailingSlash: true,
   devIndicators: false,
   outputFileTracingRoot: path.join(__dirname),

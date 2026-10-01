@@ -1,58 +1,15 @@
-name: Deployment
+# Disabled in Brandon's copy.
+# Upstream (entrata-product/oxp-prototype-product) deploys this file to
+# oxp-prototype.entratadev.green via AWS. This fork publishes only through
+# .github/workflows/proto.yml (GitHub Pages). Do not re-enable the AWS job here.
+name: Deployment (disabled)
 
 on:
   workflow_dispatch:
-  push:
-    branches: 
-      - main
 
 jobs:
-  deploy-staging:
+  disabled:
     runs-on: ubuntu-latest
-    environment: dev
-    permissions:
-      id-token: write
-      contents: read
-      actions: read
     steps:
-      - uses: actions/checkout@v4
-      - name: Deploy to Staging
-        uses: ./.github/actions/deploy-microfrontend
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          ENVIRONMENT: dev
-          REGION: "us-east-1"
-          ACCOUNT_ID: 388604198110
-          S3_BUCKET: "388604198110-oxp-prototype"
-          STACK: "staging"
-          ROLE_ARN: "arn:aws:iam::388604198110:role/oxp-prototype-github-actions-role"
-          MICROFRONTEND_NAME: "oxp-prototype"
-          CUSTOM_VARS: |
-            {
-              "NEXT_PUBLIC_LITELLM_API_KEY": "${{ vars.NEXT_PUBLIC_LITELLM_API_KEY }}",
-              "NEXT_PUBLIC_LITELLM_BASE_URL": "${{ vars.NEXT_PUBLIC_LITELLM_BASE_URL }}",
-              "NEXT_PUBLIC_LITELLM_DEFAULT_MODEL": "${{ vars.NEXT_PUBLIC_LITELLM_DEFAULT_MODEL }}"
-            }
-  
-  # deploy-common:
-  #   runs-on: ubuntu-latest
-  #   environment: dev
-  #   permissions:
-  #     id-token: write
-  #     contents: read
-  #   steps:
-  #     - name: Deploy to Staging
-  #       uses: ./.github/actions/deploy-microfrontend
-  #       with:
-  #         github_token: ${{ secrets.GITHUB_TOKEN }}
-  #         ENVIRONMENT: dev
-  #         REGION: "us-east-1"
-  #         ACCOUNT_ID: 388604198110
-  #         S3_BUCKET: "388604198110-prototype/oxp-prototype"
-  #         STACK: "staging"
-  #         ROLE_ARN: "arn:aws:iam::388604198110:role/prototype-github-actions-role"
-  #         MICROFRONTEND_NAME: "prototype"
-  #         CUSTOM_VARS: |
-  #           {
-  #             "NODE_ENV": "staging"
-  #           }
+      - name: Skip Entrata deploy
+        run: echo "AWS deploy to entratadev.green is disabled in this copy. GitHub Pages is .github/workflows/proto.yml."

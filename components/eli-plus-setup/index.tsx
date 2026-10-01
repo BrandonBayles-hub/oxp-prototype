@@ -92,7 +92,7 @@ export default function EliOnboardingHybrid() {
 
   // Optional deep-link: /getting-started?tab=eli-plus&page=communications opens a specific tab
   useEffect(() => {
-    const valid: PageId[] = ["overview", "company", "privacy", "email", "communications", "ivr-setup", "leasing", "payments", "maintenance", "renewals", "renewals-channels", "golive"]
+    const valid: PageId[] = ["overview", "company", "privacy", "email", "communications", "comms-go-live", "ivr-setup", "leasing", "payments", "maintenance", "renewals", "renewals-channels", "golive"]
     const p = new URLSearchParams(window.location.search).get("page")
     if (p && (valid as string[]).includes(p)) setPage(p as PageId)
   }, [])
