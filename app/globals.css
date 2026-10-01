@@ -108,21 +108,34 @@
   background: hsl(var(--border));
 }
 
-/* Always-visible scrollbar — classic track, not macOS overlay auto-hide. */
+/* Always-visible scrollbar. macOS overlay scrollbars stay hidden even with
+   overflow-y: scroll, so the track and thumb are also painted on the element. */
 .oxp-visible-scrollbar {
   overflow-y: scroll;
   scrollbar-width: thin;
   scrollbar-color: #d4d4d4 #f5f5f5;
+  background-image:
+    linear-gradient(#d4d4d4, #d4d4d4),
+    linear-gradient(#f5f5f5, #f5f5f5);
+  background-repeat: no-repeat;
+  background-size: 6px 48px, 8px 100%;
+  background-position: right 8px center, right 7px top;
+  animation: oxp-scrollbar-thumb linear both;
+  animation-timeline: scroll(self);
+}
+@keyframes oxp-scrollbar-thumb {
+  from { background-position: right 8px top, right 7px top; }
+  to { background-position: right 8px calc(100% - 48px), right 7px top; }
 }
 .oxp-visible-scrollbar::-webkit-scrollbar {
   width: 8px;
 }
 .oxp-visible-scrollbar::-webkit-scrollbar-track {
-  background: #f5f5f5;
+  background: transparent;
   border-radius: 9999px;
 }
 .oxp-visible-scrollbar::-webkit-scrollbar-thumb {
-  background: #d4d4d4;
+  background: transparent;
   border-radius: 9999px;
 }
 
