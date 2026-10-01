@@ -236,36 +236,21 @@ export function GoLiveActivationDialog({
 
           {/* Staff readiness — required, gates Confirm */}
           <label
-            className={cn(
-              "mt-3 flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 transition-colors",
-              staffTrained
-                ? "border-emerald-300 bg-emerald-50/60"
-                : "border-amber-300 bg-amber-50/60 hover:bg-amber-50"
-            )}
+            className="mt-3 flex cursor-pointer items-start gap-2.5 rounded-md border border-red-300 bg-red-50 px-3 py-2.5 transition-colors hover:bg-red-100/40"
           >
             <Checkbox
               checked={staffTrained}
               onCheckedChange={(checked) => setStaffTrained(checked === true)}
-              className={cn(
-                "mt-0.5",
-                staffTrained
-                  ? "border-emerald-600 data-[state=checked]:bg-emerald-600 data-[state=checked]:border-emerald-600"
-                  : "border-amber-500"
-              )}
+              className="mt-0.5 border-red-400 data-[state=checked]:bg-red-600 data-[state=checked]:border-red-600"
               data-testid="staff-trained-checkbox"
             />
             <span className="min-w-0">
-              <span className="block text-sm font-medium leading-5 text-foreground">
+              <span className="block text-sm font-medium leading-5 text-red-900">
                 My staff is trained to handle lead and resident replies and escalations in OXP
                 Communications.
               </span>
-              <span
-                className={cn(
-                  "mt-0.5 flex items-center gap-1 text-[11px]",
-                  staffTrained ? "text-emerald-700" : "text-amber-800"
-                )}
-              >
-                <AlertTriangle className="h-3 w-3 shrink-0" />
+              <span className="mt-0.5 flex items-center gap-1 text-[11px] text-red-700">
+                <AlertTriangle className="h-3 w-3 shrink-0 text-red-600" />
                 Required. Untrained staff leads to missed escalations and lost leases.
               </span>
             </span>
