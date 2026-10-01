@@ -5,7 +5,6 @@ import {
   Zap,
   CheckCircle2,
   Phone,
-  Mail,
   AlertTriangle,
 } from "lucide-react";
 import {
@@ -205,50 +204,56 @@ export function GoLiveActivationDialog({
             >
               Contact-point and message center texts send from this number.
             </ChecklistRow>
+            <ChecklistRow title="Website chatbot">Added to the prospect portal.</ChecklistRow>
+            <ChecklistRow title="Resident Portal & Homebody chatbot">
+              Residents see it in the app.
+            </ChecklistRow>
+            <ChecklistRow title="Escalations to OXP Communications">
+              Staff resolve them in Communications.
+            </ChecklistRow>
           </ul>
 
-          {/* Optional — compact, informational */}
-          <div className="mt-2 rounded-md border border-border/70 bg-muted/30 px-3 py-2.5">
-            <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Optional — review if you use them
-            </p>
-            <ul className="space-y-1 text-xs text-muted-foreground">
-              <li className="flex items-start gap-2">
-                <Phone className="mt-0.5 h-3 w-3 shrink-0" />
-                <span>
-                  <strong className="font-medium text-foreground">IVR:</strong> Route the Eli number
-                  behind your Leasing/Maintenance AI options.
-                </span>
-              </li>
-              <li className="flex items-start gap-2">
-                <Mail className="mt-0.5 h-3 w-3 shrink-0" />
-                <span>
-                  <strong className="font-medium text-foreground">Custom email:</strong> Connect it in
-                  Communications Settings for AI email; otherwise email works as today.
-                </span>
-              </li>
-            </ul>
-          </div>
-
-          {/* Staff readiness — required, gates Confirm */}
+          {/* Staff readiness — required, gates Confirm. Red until checked, then emerald. */}
           <label
-            className="mt-3 flex cursor-pointer items-start gap-2.5 rounded-md border border-red-300 bg-red-50 px-3 py-2.5 transition-colors hover:bg-red-100/40"
+            className={cn(
+              "mt-3 flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 transition-colors",
+              staffTrained
+                ? "border-emerald-200 bg-emerald-50 hover:bg-emerald-100/40"
+                : "border-red-300 bg-red-50 hover:bg-red-100/40"
+            )}
           >
             <Checkbox
               checked={staffTrained}
               onCheckedChange={(checked) => setStaffTrained(checked === true)}
-              className="mt-0.5 border-red-400 data-[state=checked]:bg-red-600 data-[state=checked]:border-red-600"
+              className={cn(
+                "mt-0.5",
+                staffTrained
+                  ? "border-emerald-500 data-[state=checked]:border-emerald-600 data-[state=checked]:bg-emerald-600 data-[state=checked]:text-white"
+                  : "border-red-400 data-[state=checked]:border-red-600 data-[state=checked]:bg-red-600"
+              )}
               data-testid="staff-trained-checkbox"
             />
             <span className="min-w-0">
-              <span className="block text-sm font-medium leading-5 text-red-900">
+              <span
+                className={cn(
+                  "block text-sm font-medium leading-5",
+                  staffTrained ? "text-emerald-900" : "text-red-900"
+                )}
+              >
                 My staff is trained to handle lead and resident replies and escalations in OXP
                 Communications.
               </span>
-              <span className="mt-0.5 flex items-center gap-1 text-[11px] text-red-700">
-                <AlertTriangle className="h-3 w-3 shrink-0 text-red-600" />
-                Required. Untrained staff leads to missed escalations and lost leases.
-              </span>
+              {staffTrained ? (
+                <span className="mt-0.5 flex items-center gap-1 text-[11px] text-emerald-700">
+                  <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-600" />
+                  Staff readiness confirmed.
+                </span>
+              ) : (
+                <span className="mt-0.5 flex items-center gap-1 text-[11px] text-red-700">
+                  <AlertTriangle className="h-3 w-3 shrink-0 text-red-600" />
+                  Required. Untrained staff leads to missed escalations and lost leases.
+                </span>
+              )}
             </span>
           </label>
         </div>
