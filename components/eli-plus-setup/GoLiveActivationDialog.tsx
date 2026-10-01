@@ -161,7 +161,7 @@ export function GoLiveActivationDialog({
             Activate Eli Orchestrator
           </DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
-            Review before going live at{" "}
+            Review the following checklist before going live at{" "}
             <strong className="font-semibold text-foreground">{property?.name}</strong>.
           </DialogDescription>
         </DialogHeader>
