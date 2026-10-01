@@ -151,7 +151,10 @@ export function GoLiveActivationDialog({
   return (
     <Dialog open={!!property} onOpenChange={onOpenChange}>
       <DialogContent
-        className={cn("max-w-lg gap-0 p-0", contentClassName)}
+        className={cn(
+          "flex max-h-[calc(100vh-2rem)] w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-[640px]",
+          contentClassName
+        )}
         overlayClassName={overlayClassName}
         data-testid="go-live-dialog"
       >
@@ -166,7 +169,7 @@ export function GoLiveActivationDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="px-6 py-3">
+        <div className="oxp-visible-scrollbar min-h-0 max-h-[calc(100vh-220px)] flex-1 overflow-y-scroll px-6 py-3">
           <ul className="divide-y divide-border/60">
             <ChecklistRow
               title="Eli Orchestrator number"
