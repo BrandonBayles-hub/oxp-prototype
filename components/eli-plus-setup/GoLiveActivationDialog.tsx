@@ -57,6 +57,11 @@ interface Props {
   overlayClassName?: string;
   /** Extra classes for the Select dropdown (must sit above the dialog). */
   selectContentClassName?: string;
+  /**
+   * Opens the ELI+ Setup Email Integration page. The dialog closes first.
+   * Optional: the review link still closes the dialog when omitted.
+   */
+  onReviewEmail?: () => void;
 }
 
 // ── Mock number pool ────────────────────────────────────────────────────────
@@ -129,6 +134,7 @@ export function GoLiveActivationDialog({
   contentClassName,
   overlayClassName,
   selectContentClassName,
+  onReviewEmail,
 }: Props) {
   const options = useMemo<EliNumberOption[]>(() => {
     if (!property) return [];
@@ -138,11 +144,13 @@ export function GoLiveActivationDialog({
 
   const [selectedNumber, setSelectedNumber] = useState(defaultValue);
   const [staffTrained, setStaffTrained] = useState(false);
+  const [skipEmail, setSkipEmail] = useState(false);
 
   // Reset per-open so each property starts from its default number.
   useEffect(() => {
     setSelectedNumber(defaultValue);
     setStaffTrained(false);
+    setSkipEmail(false);
   }, [property?.id, defaultValue]);
 
   const close = () => onOpenChange(false);
@@ -204,13 +212,50 @@ export function GoLiveActivationDialog({
             >
               Contact-point and message center texts send from this number.
             </ChecklistRow>
-            <ChecklistRow title="Website chatbot">Added to the prospect portal.</ChecklistRow>
-            <ChecklistRow title="Resident Portal & Homebody chatbot">
-              Residents see it in the app.
-            </ChecklistRow>
-            <ChecklistRow title="Escalations to OXP Communications">
-              Staff resolve them in Communications.
-            </ChecklistRow>
+
+            <li className="py-2.5" data-testid="email-integration-review">
+              <div className="flex items-start gap-3">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold leading-5 text-foreground">Email integration</p>
+                  <p className="text-xs leading-4 text-muted-foreground">
+                    AI replies only work on email that is connected. Without it, email stays exactly as it works today.
+                  </p>
+                  <p className="mt-1.5 text-xs font-medium leading-4 text-foreground">What you miss</p>
+                  <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-xs leading-4 text-muted-foreground">
+                    <li>Prospect and resident emails are not answered by Eli.</li>
+                    <li>Staff keep handling email the current way.</li>
+                  </ul>
+                  <button
+                    type="button"
+                    className="mt-1.5 text-xs font-medium text-emerald-700 underline underline-offset-2 hover:text-emerald-800"
+                    onClick={() => {
+                      close();
+                      onReviewEmail?.();
+                    }}
+                    data-testid="review-email-integration"
+                  >
+                    Review email integration
+                  </button>
+                  <label className="mt-2 flex cursor-pointer items-start gap-2">
+                    <Checkbox
+                      checked={skipEmail}
+                      onCheckedChange={(checked) => setSkipEmail(checked === true)}
+                      className="mt-0.5"
+                      data-testid="email-skip-checkbox"
+                    />
+                    <span className="text-xs leading-4 text-foreground">
+                      Go live without email integration. I understand Eli will not answer email.
+                    </span>
+                  </label>
+                  {skipEmail && (
+                    <p className="mt-1 pl-6 text-[11px] leading-4 text-muted-foreground" data-testid="email-skip-note">
+                      You&apos;ll go live without AI email. You can connect email later.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </li>
           </ul>
 
           {/* Staff readiness — required, gates Confirm. Red until checked, then emerald. */}

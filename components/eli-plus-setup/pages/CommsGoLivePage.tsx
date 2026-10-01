@@ -21,7 +21,7 @@ interface Props {
   navigate: (to: PageId) => void;
 }
 
-export function CommsGoLivePage({ navigate: _navigate }: Props) {
+export function CommsGoLivePage({ navigate }: Props) {
   const {
     activatedPropertyIds,
     activatedPropertyNumbers,
@@ -147,6 +147,7 @@ export function CommsGoLivePage({ navigate: _navigate }: Props) {
           if (!open) setGoLiveModalProp(null);
         }}
         onConfirm={(prop, eliNumber) => activateProperty(prop.id, eliNumber)}
+        onReviewEmail={() => navigate("email")}
         contentClassName="z-[10001]"
         overlayClassName="z-[10000]"
         selectContentClassName="z-[10002]"

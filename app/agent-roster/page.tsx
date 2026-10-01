@@ -2,7 +2,7 @@
 
 import { Suspense, useState, useMemo, useEffect, useRef } from "react";
 import Image from "next/image";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import {
   useAgents,
@@ -6523,6 +6523,7 @@ type CloneSettingType =
   | "pre_acceptance_confirmation";
 
 function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string; SettingsPage: React.ComponentType<FlyoutPageProps> }) {
+  const router = useRouter();
   const { goLiveAutomationEnabled, activatedPropertyIds, activatedPropertyNumbers, activateProperty } = useConversationsDemo();
   const [goLiveModalProp, setGoLiveModalProp] = useState<typeof AGENT_FLYOUT_PROPERTIES[0] | null>(null);
   const [selectedProperty, setSelectedProperty] = useState<typeof AGENT_FLYOUT_PROPERTIES[0] | null>(null);
@@ -6916,6 +6917,9 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
           if (!open) setGoLiveModalProp(null);
         }}
         onConfirm={(prop, eliNumber) => activateProperty(prop.id, eliNumber)}
+        onReviewEmail={() => {
+          router.push("/getting-started?tab=eli-plus&page=email");
+        }}
       />
 
       {bulkApplied && (
