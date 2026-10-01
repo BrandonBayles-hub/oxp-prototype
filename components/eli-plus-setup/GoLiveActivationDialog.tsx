@@ -205,13 +205,6 @@ export function GoLiveActivationDialog({
             >
               Contact-point and message center texts send from this number.
             </ChecklistRow>
-            <ChecklistRow title="Website chatbot">Added to the prospect portal.</ChecklistRow>
-            <ChecklistRow title={"Resident Portal & Homebody chatbot"}>
-              Residents see it in the app.
-            </ChecklistRow>
-            <ChecklistRow title="Escalations to OXP Communications">
-              Staff resolve them in Communications.
-            </ChecklistRow>
           </ul>
 
           {/* Optional — compact, informational */}
