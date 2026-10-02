@@ -6,6 +6,7 @@ import {
   Phone,
   AlertTriangle,
   CheckCircle2,
+  Info,
 } from "lucide-react";
 import {
   Dialog,
@@ -196,14 +197,18 @@ export function GoLiveActivationDialog({
         </DialogHeader>
 
         <div className="oxp-visible-scrollbar min-h-0 max-h-[calc(100vh-220px)] flex-1 overflow-y-scroll px-6 py-3">
-          <ul className="divide-y divide-border/60">
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+            <Info className="h-4 w-4 text-sky-600" />
+            What will change
+          </p>
+          <ul className="mt-1 divide-y divide-border/60">
             <ChannelRow
               checked={prospectPortal}
               onCheckedChange={setProspectPortal}
               title="Prospect portal"
               testId="channel-prospect"
             >
-              Leasing chatbot goes live on the prospect website.
+              A chatbot will be added to the prospect portal website for this property. It answers leasing questions. Uncheck to go live without it.
             </ChannelRow>
             <ChannelRow
               checked={residentPortal}
@@ -211,7 +216,7 @@ export function GoLiveActivationDialog({
               title="Resident portal"
               testId="channel-resident"
             >
-              Chatbot goes live for renewals, payments, and maintenance.
+              Residents using Resident Portal or Homebody will see the chatbot in their app for renewals, payments, and maintenance. Uncheck to go live without it.
             </ChannelRow>
             <ChannelRow
               checked={smsOn}
@@ -250,15 +255,40 @@ export function GoLiveActivationDialog({
                 ) : null
               }
             >
-              Texts and calls use this number. Uncheck to go live without it.
+              Automated messages from contact points and the message center will switch to this number. Uncheck to go live without texts and calls.
             </ChannelRow>
+            <li className="flex items-start gap-3 py-2.5" data-testid="escalations-notice">
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold leading-5 text-foreground">Escalations</p>
+                <p className="mt-0.5 text-xs leading-4 text-muted-foreground">
+                  All escalations will begin routing to the OXP Communications area for staff resolution. This happens when you go live and is not optional.
+                </p>
+              </div>
+            </li>
+          </ul>
+
+          <p className="mt-4 flex items-center gap-1.5 text-sm font-semibold text-foreground">
+            <Info className="h-4 w-4 text-sky-600" />
+            Optional customizations
+          </p>
+          <p className="mt-1 text-xs leading-4 text-muted-foreground">
+            These aren&apos;t required to go live. If you already use IVR or custom email, review them so those flows behave the way you expect.
+          </p>
+          <ul className="mt-1 divide-y divide-border/60">
+            <li className="py-2.5" data-testid="ivr-optional">
+              <p className="text-sm font-semibold leading-5 text-foreground">IVR flow</p>
+              <p className="mt-0.5 text-xs leading-4 text-muted-foreground">
+                If you use voice, you can route the Eli Orchestrator number behind your Leasing AI and Maintenance AI options so inbound calls reach the AI. This does not block go live.
+              </p>
+            </li>
             <li className="py-2.5" data-testid="email-integration-review">
               <div className="flex items-start gap-3">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold leading-5 text-foreground">Email integration</p>
+                  <p className="text-sm font-semibold leading-5 text-foreground">AI-powered email</p>
                   <p className="text-xs leading-4 text-muted-foreground">
-                    Not connected. Eli will not answer email until an address is authenticated. You can set this up before or after go live.
+                    Not connected. Integrate your custom email to enable Eli Orchestrator AI emails. Otherwise your existing non-AI email flow continues as it does today. You can set this up before or after go live.
                   </p>
                   <button
                     type="button"
