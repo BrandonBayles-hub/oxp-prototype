@@ -6,7 +6,11 @@ import {
   Phone,
   AlertTriangle,
   CheckCircle2,
-  Info,
+  Globe,
+  Home,
+  Inbox,
+  Mail,
+  PhoneForwarded,
 } from "lucide-react";
 import {
   Dialog,
@@ -25,6 +29,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { GoLiveChannels } from "@/lib/conversations-demo-context";
@@ -103,48 +108,105 @@ export function buildEliNumberOptions(property: GoLiveProperty): EliNumberOption
   return pool;
 }
 
-function ChannelRow({
-  checked,
-  onCheckedChange,
+function RowIcon({ children, tone = "emerald" }: { children: React.ReactNode; tone?: "emerald" | "slate" | "amber" }) {
+  const tones = {
+    emerald: "bg-emerald-50 text-emerald-700",
+    slate: "bg-slate-100 text-slate-600",
+    amber: "bg-amber-50 text-amber-700",
+  };
+  return (
+    <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-md", tones[tone])}>
+      {children}
+    </span>
+  );
+}
+
+/** Setting row: icon, copy, and an on/off switch that defaults on. */
+function SettingRow({
+  icon,
   title,
   children,
+  checked,
+  onCheckedChange,
   testId,
-  icon,
   extra,
-  disabled,
-  badge,
 }: {
-  checked: boolean;
-  onCheckedChange: (checked: boolean) => void;
+  icon: React.ReactNode;
   title: string;
   children: React.ReactNode;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
   testId: string;
-  icon?: React.ReactNode;
   extra?: React.ReactNode;
-  disabled?: boolean;
-  badge?: React.ReactNode;
 }) {
   return (
-    <li className="py-2.5">
-      <label className={cn("flex items-start gap-3", disabled ? "cursor-default" : "cursor-pointer")}>
-        <Checkbox
-          checked={checked}
-          onCheckedChange={(value) => onCheckedChange(value === true)}
-          disabled={disabled}
-          className="mt-0.5 disabled:opacity-60"
-          data-testid={testId}
-        />
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-1.5 text-sm font-semibold leading-5 text-foreground">
-            {icon}
-            {title}
-            {badge}
+    <li className="flex items-start gap-3 py-3">
+      <RowIcon tone={checked ? "emerald" : "slate"}>{icon}</RowIcon>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-semibold leading-5 text-foreground">{title}</p>
+          <span
+            className={cn(
+              "rounded-full px-1.5 py-0 text-[10px] font-semibold",
+              checked ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"
+            )}
+          >
+            {checked ? "On by default" : "Off"}
           </span>
-          <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">{children}</span>
-        </span>
-      </label>
-      {extra && <div className="pl-7 pt-2">{extra}</div>}
+        </div>
+        <p className="mt-0.5 text-xs leading-4 text-muted-foreground">{children}</p>
+        {extra && <div className="pt-2">{extra}</div>}
+      </div>
+      <Switch
+        checked={checked}
+        onCheckedChange={onCheckedChange}
+        aria-label={title}
+        className="mt-1 data-[state=checked]:bg-emerald-600"
+        data-testid={testId}
+      />
     </li>
+  );
+}
+
+/** Informational row: icon and copy, no control. */
+function InfoRow({
+  icon,
+  title,
+  children,
+  tone = "slate",
+  testId,
+  badge,
+  extra,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  children: React.ReactNode;
+  tone?: "emerald" | "slate" | "amber";
+  testId: string;
+  badge?: React.ReactNode;
+  extra?: React.ReactNode;
+}) {
+  return (
+    <li className="flex items-start gap-3 py-3" data-testid={testId}>
+      <RowIcon tone={tone}>{icon}</RowIcon>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-semibold leading-5 text-foreground">{title}</p>
+          {badge}
+        </div>
+        <p className="mt-0.5 text-xs leading-4 text-muted-foreground">{children}</p>
+        {extra && <div className="pt-1.5">{extra}</div>}
+      </div>
+    </li>
+  );
+}
+
+function SectionTitle({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <div className="pb-1 pt-2">
+      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{title}</h3>
+      <p className="mt-0.5 text-xs leading-4 text-muted-foreground">{subtitle}</p>
+    </div>
   );
 }
 
@@ -169,7 +231,6 @@ export function GoLiveActivationDialog({
   const [residentPortal, setResidentPortal] = useState(true);
   const [smsOn, setSmsOn] = useState(true);
   const [staffTrained, setStaffTrained] = useState(false);
-  const [ivrOn, setIvrOn] = useState(false);
 
   // Reset per-open so each property starts from its default number.
   useEffect(() => {
@@ -178,7 +239,6 @@ export function GoLiveActivationDialog({
     setResidentPortal(true);
     setSmsOn(true);
     setStaffTrained(false);
-    setIvrOn(false);
   }, [property?.id, defaultValue]);
 
   const close = () => onOpenChange(false);
@@ -205,33 +265,39 @@ export function GoLiveActivationDialog({
         </DialogHeader>
 
         <div className="oxp-visible-scrollbar min-h-0 max-h-[calc(100vh-220px)] flex-1 overflow-y-scroll px-6 py-3">
-          <p className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
-            <Info className="h-4 w-4 text-sky-600" />
-            What will change
-          </p>
-          <ul className="mt-1 divide-y divide-border/60">
-            <ChannelRow
+          <SectionTitle
+            title="What will change"
+            subtitle="These settings are on by default. Turn any off and you can still go live."
+          />
+          <ul className="divide-y divide-border/60">
+            <SettingRow
+              icon={<Globe className="h-4 w-4" />}
+              title="Prospect portal chatbot"
               checked={prospectPortal}
               onCheckedChange={setProspectPortal}
-              title="Prospect portal"
               testId="channel-prospect"
             >
-              A chatbot will be added to the prospect portal website for this property. It answers leasing questions. Uncheck to go live without it.
-            </ChannelRow>
-            <ChannelRow
+              {prospectPortal
+                ? "A chatbot appears on this property's prospect portal website to answer leasing questions."
+                : "No chatbot on the prospect portal. You can turn it on later from Agent Roster."}
+            </SettingRow>
+            <SettingRow
+              icon={<Home className="h-4 w-4" />}
+              title="Resident portal chatbot"
               checked={residentPortal}
               onCheckedChange={setResidentPortal}
-              title="Resident portal"
               testId="channel-resident"
             >
-              Residents using Resident Portal or Homebody will see the chatbot in their app for renewals, payments, and maintenance. Uncheck to go live without it.
-            </ChannelRow>
-            <ChannelRow
+              {residentPortal
+                ? "Residents using Resident Portal or Homebody see the chatbot for renewals, payments, and maintenance."
+                : "No chatbot for residents. You can turn it on later from Agent Roster."}
+            </SettingRow>
+            <SettingRow
+              icon={<Phone className="h-4 w-4" />}
+              title="Eli Orchestrator number"
               checked={smsOn}
               onCheckedChange={setSmsOn}
-              title="Eli Orchestrator number"
               testId="channel-sms"
-              icon={<Phone className="h-4 w-4 text-emerald-600" />}
               extra={
                 smsOn ? (
                   <Select value={selectedNumber} onValueChange={setSelectedNumber}>
@@ -263,49 +329,34 @@ export function GoLiveActivationDialog({
                 ) : null
               }
             >
-              Automated messages from contact points and the message center will switch to this number. Uncheck to go live without texts and calls.
-            </ChannelRow>
-            <ChannelRow
-              checked
-              onCheckedChange={() => {}}
-              disabled
-              title="Escalations to OXP Communications"
+              {smsOn
+                ? "Automated texts and calls from contact points and the message center use this number."
+                : "Go live without texts and calls. You can add a number later from Agent Roster."}
+            </SettingRow>
+            <InfoRow
+              icon={<Inbox className="h-4 w-4" />}
+              title="Escalations go to OXP Communications"
               testId="channel-escalations"
-              badge={
-                <Badge variant="secondary" className="px-1.5 py-0 text-[10px] font-semibold">
-                  Always on
-                </Badge>
-              }
             >
-              All escalations route to OXP Communications for staff resolution once you go live.
-            </ChannelRow>
+              When Eli can&apos;t resolve a conversation, it routes to OXP Communications for your staff.
+            </InfoRow>
           </ul>
 
-          <p className="mt-4 flex items-center gap-1.5 text-sm font-semibold text-foreground">
-            <Info className="h-4 w-4 text-sky-600" />
-            Optional customizations
-          </p>
-          <p className="mt-1 text-xs leading-4 text-muted-foreground">
-            Not required to go live. Check these if you already use IVR or custom email.
-          </p>
-          <ul className="mt-1 divide-y divide-border/60">
-            <ChannelRow
-              checked={ivrOn}
-              onCheckedChange={setIvrOn}
+          <SectionTitle
+            title="Optional customizations"
+            subtitle="Not required to go live. Review these if you already use IVR or custom email."
+          />
+          <ul className="divide-y divide-border/60">
+            <InfoRow
+              icon={<PhoneForwarded className="h-4 w-4" />}
               title="IVR flow"
               testId="channel-ivr"
-              badge={
-                <Badge variant="secondary" className="px-1.5 py-0 text-[10px] font-semibold">
-                  Optional
-                </Badge>
-              }
             >
-              Route the Eli Orchestrator number behind your Leasing AI and Maintenance AI IVR options so inbound calls reach the AI.
-            </ChannelRow>
-            <ChannelRow
-              checked={false}
-              onCheckedChange={() => {}}
-              disabled
+              If you use voice, route the Eli Orchestrator number behind your Leasing AI and Maintenance AI options so inbound calls reach the AI.
+            </InfoRow>
+            <InfoRow
+              icon={<Mail className="h-4 w-4" />}
+              tone="amber"
               title="AI-powered email"
               testId="email-integration-review"
               badge={
@@ -328,8 +379,8 @@ export function GoLiveActivationDialog({
                 </button>
               }
             >
-              Connect your custom email to turn on AI emails. Until then your current email flow keeps working. You can set this up before or after go live.
-            </ChannelRow>
+              Connect your custom email to turn on AI emails. Until then, your current email flow keeps working. Set this up before or after go live.
+            </InfoRow>
           </ul>
 
           <label
