@@ -145,7 +145,7 @@ function SettingRow({
               checked ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"
             )}
           >
-            {checked ? "On by default" : "Off"}
+            {checked ? "Default" : "Off"}
           </span>
         </div>
         <p className="mt-0.5 text-xs leading-4 text-muted-foreground">{children}</p>
