@@ -307,11 +307,6 @@ export function GoLiveActivationDialog({
                         <SelectItem key={opt.value} value={opt.value} className="text-xs">
                           <span className="inline-flex items-center gap-2 tabular-nums">
                             {opt.value}
-                            {opt.isDefault && (
-                              <Badge variant="green" className="px-1.5 py-0 text-[10px] font-semibold">
-                                Default
-                              </Badge>
-                            )}
                             {!opt.isDefault && opt.note && (
                               <span className="text-[10px] text-muted-foreground">{opt.note}</span>
                             )}
@@ -327,6 +322,27 @@ export function GoLiveActivationDialog({
                 ? "Automated texts and calls from contact points and the message center use this number."
                 : "Go live without texts and calls. You can add a number later from Agent Roster."}
             </SettingRow>
+            <InfoRow
+              icon={<CheckCircle2 className="h-4 w-4" />}
+              title="Escalations go to OXP Communications"
+              testId="channel-escalations"
+            >
+              When Eli can&apos;t resolve a conversation, it routes to OXP Communications for your staff.
+            </InfoRow>
+          </ul>
+
+          <SectionTitle
+            title="Optional customizations"
+            subtitle="Not required to go live. Review these if you already use IVR or custom email."
+          />
+          <ul className="divide-y divide-border/60">
+            <InfoRow
+              icon={<CheckCircle2 className="h-4 w-4" />}
+              title="IVR flow"
+              testId="channel-ivr"
+            >
+              If you use voice, route the Eli Orchestrator number behind your Leasing AI and Maintenance AI options so inbound calls reach the AI.
+            </InfoRow>
             <InfoRow
               icon={<AlertTriangle className="h-4 w-4" />}
               tone="amber"
@@ -353,27 +369,6 @@ export function GoLiveActivationDialog({
               }
             >
               Connect your custom email to turn on AI emails. Until then, your current email flow keeps working. Set this up before or after go live.
-            </InfoRow>
-            <InfoRow
-              icon={<CheckCircle2 className="h-4 w-4" />}
-              title="Escalations go to OXP Communications"
-              testId="channel-escalations"
-            >
-              When Eli can&apos;t resolve a conversation, it routes to OXP Communications for your staff.
-            </InfoRow>
-          </ul>
-
-          <SectionTitle
-            title="Optional customizations"
-            subtitle="Not required to go live. Review this if you already use IVR."
-          />
-          <ul className="divide-y divide-border/60">
-            <InfoRow
-              icon={<CheckCircle2 className="h-4 w-4" />}
-              title="IVR flow"
-              testId="channel-ivr"
-            >
-              If you use voice, route the Eli Orchestrator number behind your Leasing AI and Maintenance AI options so inbound calls reach the AI.
             </InfoRow>
           </ul>
 
