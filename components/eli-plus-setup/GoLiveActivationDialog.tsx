@@ -5,6 +5,7 @@ import {
   Zap,
   Phone,
   AlertTriangle,
+  CheckCircle2,
 } from "lucide-react";
 import {
   Dialog,
@@ -160,6 +161,7 @@ export function GoLiveActivationDialog({
   const [prospectPortal, setProspectPortal] = useState(true);
   const [residentPortal, setResidentPortal] = useState(true);
   const [smsOn, setSmsOn] = useState(true);
+  const [staffTrained, setStaffTrained] = useState(false);
 
   // Reset per-open so each property starts from its default number.
   useEffect(() => {
@@ -167,6 +169,7 @@ export function GoLiveActivationDialog({
     setProspectPortal(true);
     setResidentPortal(true);
     setSmsOn(true);
+    setStaffTrained(false);
   }, [property?.id, defaultValue]);
 
   const close = () => onOpenChange(false);
@@ -273,9 +276,48 @@ export function GoLiveActivationDialog({
             </li>
           </ul>
 
-          <p className="mt-3 text-xs leading-4 text-muted-foreground">
-            We hope you reviewed these. You can still go live. Turn a channel off later from Agent Roster.
-          </p>
+          <label
+            className={cn(
+              "mt-3 flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 transition-colors",
+              staffTrained
+                ? "border-emerald-200 bg-emerald-50 hover:bg-emerald-100/40"
+                : "border-red-300 bg-red-50 hover:bg-red-100/40"
+            )}
+          >
+            <Checkbox
+              checked={staffTrained}
+              onCheckedChange={(checked) => setStaffTrained(checked === true)}
+              className={cn(
+                "mt-0.5",
+                staffTrained
+                  ? "border-emerald-500 data-[state=checked]:border-emerald-600 data-[state=checked]:bg-emerald-600 data-[state=checked]:text-white"
+                  : "border-red-400 data-[state=checked]:border-red-600 data-[state=checked]:bg-red-600"
+              )}
+              data-testid="staff-trained-checkbox"
+            />
+            <span className="min-w-0">
+              <span
+                className={cn(
+                  "block text-sm font-medium leading-5",
+                  staffTrained ? "text-emerald-900" : "text-red-900"
+                )}
+              >
+                My staff is trained to handle lead and resident replies and escalations in OXP
+                Communications.
+              </span>
+              {staffTrained ? (
+                <span className="mt-0.5 flex items-center gap-1 text-[11px] text-emerald-700">
+                  <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-600" />
+                  Staff readiness confirmed.
+                </span>
+              ) : (
+                <span className="mt-0.5 flex items-center gap-1 text-[11px] text-red-700">
+                  <AlertTriangle className="h-3 w-3 shrink-0 text-red-600" />
+                  Required. Untrained staff leads to missed escalations and lost leases.
+                </span>
+              )}
+            </span>
+          </label>
         </div>
 
         <DialogFooter className="border-t px-6 py-3.5">
@@ -283,7 +325,9 @@ export function GoLiveActivationDialog({
             Cancel
           </Button>
           <Button
-            className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
+            disabled={!staffTrained}
+            className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-emerald-600/40"
+            title={!staffTrained ? "Confirm staff readiness to enable" : undefined}
             onClick={() => {
               if (property) {
                 onConfirm(property, {
