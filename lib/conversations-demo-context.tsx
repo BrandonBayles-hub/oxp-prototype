@@ -67,6 +67,14 @@ export const VIEWPORT_PRESET_SIZES: Record<
   "1600x900": { width: 1600, height: 900 },
 };
 
+export interface GoLiveChannels {
+  prospectPortal: boolean;
+  residentPortal: boolean;
+  sms: boolean;
+  email: boolean;
+  eliNumber: string;
+}
+
 type ConversationsDemoContextValue = {
   /** Increments each time the demo should open the Entrata profile without the threads panel. */
   profileCommsPopupRequest: number;
@@ -325,7 +333,9 @@ type ConversationsDemoContextValue = {
    * ID. Only present for properties activated through the dialog.
    */
   activatedPropertyNumbers: Record<string, string>;
-  activateProperty: (id: string, eliNumber?: string) => void;
+  /** What went live with each property. Read-only after confirm. */
+  activatedPropertyChannels: Record<string, GoLiveChannels>;
+  activateProperty: (id: string, selection?: GoLiveChannels) => void;
   deactivateProperty: (id: string) => void;
   /**
    * Super Agent 1.2-only "Testing" mode. When on, the conversation
@@ -488,10 +498,14 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
     setTestingModeEnabled((v) => !v);
   }, []);
   const [activatedPropertyNumbers, setActivatedPropertyNumbers] = useState<Record<string, string>>({});
-  const activateProperty = useCallback((id: string, eliNumber?: string) => {
+  const [activatedPropertyChannels, setActivatedPropertyChannels] = useState<Record<string, GoLiveChannels>>({});
+  const activateProperty = useCallback((id: string, selection?: GoLiveChannels) => {
     setActivatedPropertyIds((prev) => new Set(prev).add(id));
-    if (eliNumber) {
-      setActivatedPropertyNumbers((prev) => ({ ...prev, [id]: eliNumber }));
+    if (selection?.eliNumber) {
+      setActivatedPropertyNumbers((prev) => ({ ...prev, [id]: selection.eliNumber }));
+    }
+    if (selection) {
+      setActivatedPropertyChannels((prev) => ({ ...prev, [id]: selection }));
     }
   }, []);
   const deactivateProperty = useCallback((id: string) => {
@@ -501,6 +515,12 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
       return next;
     });
     setActivatedPropertyNumbers((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    setActivatedPropertyChannels((prev) => {
       if (!(id in prev)) return prev;
       const next = { ...prev };
       delete next[id];
@@ -629,6 +649,7 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
       toggleGoLiveAutomationEnabled,
       activatedPropertyIds,
       activatedPropertyNumbers,
+      activatedPropertyChannels,
       activateProperty,
       deactivateProperty,
       testingModeEnabled,
@@ -683,6 +704,7 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
       toggleGoLiveAutomationEnabled,
       activatedPropertyIds,
       activatedPropertyNumbers,
+      activatedPropertyChannels,
       activateProperty,
       deactivateProperty,
       testingModeEnabled,

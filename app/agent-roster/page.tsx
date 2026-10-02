@@ -6524,7 +6524,7 @@ type CloneSettingType =
 
 function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string; SettingsPage: React.ComponentType<FlyoutPageProps> }) {
   const router = useRouter();
-  const { goLiveAutomationEnabled, activatedPropertyIds, activatedPropertyNumbers, activateProperty } = useConversationsDemo();
+  const { goLiveAutomationEnabled, activatedPropertyIds, activatedPropertyNumbers, activatedPropertyChannels, activateProperty } = useConversationsDemo();
   const [goLiveModalProp, setGoLiveModalProp] = useState<typeof AGENT_FLYOUT_PROPERTIES[0] | null>(null);
   const [selectedProperty, setSelectedProperty] = useState<typeof AGENT_FLYOUT_PROPERTIES[0] | null>(null);
   const [visibleIds, setVisibleIds] = useState<Set<string>>(() => new Set(AGENT_FLYOUT_PROPERTIES.map(p => p.id)));
@@ -6852,6 +6852,15 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
                             Eli {activatedPropertyNumbers[prop.id]}
                           </span>
                         )}
+                        {wasActivated && activatedPropertyChannels[prop.id] && (
+                          <span className="text-[11px] text-muted-foreground">
+                            {[
+                              activatedPropertyChannels[prop.id].prospectPortal ? "Prospect" : null,
+                              activatedPropertyChannels[prop.id].residentPortal ? "Resident" : null,
+                              activatedPropertyChannels[prop.id].email ? "Email" : null,
+                            ].filter(Boolean).join(" · ")}
+                          </span>
+                        )}
                       </span>
                     )}
                   </td>
@@ -6916,7 +6925,7 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
         onOpenChange={(open) => {
           if (!open) setGoLiveModalProp(null);
         }}
-        onConfirm={(prop, eliNumber) => activateProperty(prop.id, eliNumber)}
+        onConfirm={(prop, selection) => activateProperty(prop.id, selection)}
         onReviewEmail={() => {
           router.push("/getting-started?tab=eli-plus&page=email");
         }}

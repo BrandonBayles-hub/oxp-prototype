@@ -1,20 +1,10 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Zap, AlertCircle, Info, PowerOff, CheckCircle2 } from "lucide-react";
+import { Zap, CheckCircle2 } from "lucide-react";
 import type { PageId } from "../index";
 import { PROPERTIES } from "../data/properties";
-import { useConversationsDemo } from "@/lib/conversations-demo-context";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { useConversationsDemo, type GoLiveChannels } from "@/lib/conversations-demo-context";
 import { GoLiveActivationDialog } from "../GoLiveActivationDialog";
 
 interface Props {
@@ -25,20 +15,13 @@ export function CommsGoLivePage({ navigate }: Props) {
   const {
     activatedPropertyIds,
     activatedPropertyNumbers,
+    activatedPropertyChannels,
     activateProperty,
-    deactivateProperty,
   } = useConversationsDemo();
 
-  // Go Live confirmation state
   const [goLiveModalProp, setGoLiveModalProp] = useState<
     typeof PROPERTIES[0] | null
   >(null);
-
-  // Deactivate confirmation state
-  const [deactivateModalProp, setDeactivateModalProp] = useState<
-    typeof PROPERTIES[0] | null
-  >(null);
-  const [deactivateAck, setDeactivateAck] = useState(false);
 
   // Show ALL contracted Eli Orchestrator properties, sorted so live
   // properties bubble to the top (staff usually wants to see the active
@@ -63,9 +46,8 @@ export function CommsGoLivePage({ navigate }: Props) {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Go Live</h1>
           <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
-            Activate Eli Orchestrator for each property individually. Once
-            activated, the property is moved to the OXP Communications area
-            for staff-managed replies and escalations.
+            Choose what goes live for each property. After you confirm, this
+            list only shows what is on. Turn a channel off later from Agent Roster.
           </p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
@@ -105,25 +87,11 @@ export function CommsGoLivePage({ navigate }: Props) {
                   </div>
                   <p className="truncate text-xs text-muted-foreground">
                     {prop.city}, {prop.state}
-                    {isLive && activatedPropertyNumbers[prop.id] && (
-                      <span className="tabular-nums">
-                        {" "}· Eli number {activatedPropertyNumbers[prop.id]}
-                      </span>
-                    )}
+                    {isLive && <LiveChannelSummary channels={activatedPropertyChannels[prop.id]} number={activatedPropertyNumbers[prop.id]} />}
                   </p>
                 </div>
                 {isLive ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDeactivateAck(false);
-                      setDeactivateModalProp(prop);
-                    }}
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-red-300 bg-white px-3 py-1 text-[11px] font-semibold text-red-700 shadow-sm transition-colors hover:bg-red-50"
-                  >
-                    <PowerOff className="h-3 w-3" />
-                    Deactivate
-                  </button>
+                  <span className="shrink-0 text-[11px] text-muted-foreground">On</span>
                 ) : (
                   <button
                     type="button"
@@ -146,171 +114,29 @@ export function CommsGoLivePage({ navigate }: Props) {
         onOpenChange={(open) => {
           if (!open) setGoLiveModalProp(null);
         }}
-        onConfirm={(prop, eliNumber) => activateProperty(prop.id, eliNumber)}
+        onConfirm={(prop, selection) => activateProperty(prop.id, selection)}
         onReviewEmail={() => navigate("email")}
         contentClassName="z-[10001]"
         overlayClassName="z-[10000]"
         selectContentClassName="z-[10002]"
       />
 
-      {/* ── Deactivate Confirmation Modal (opposite of Go Live) ── */}
-      <Dialog
-        open={!!deactivateModalProp}
-        onOpenChange={(open) => {
-          if (!open) {
-            setDeactivateModalProp(null);
-            setDeactivateAck(false);
-          }
-        }}
-      >
-        <DialogContent
-          className="max-w-lg gap-0 p-0 z-[10001]"
-          overlayClassName="z-[10000]"
-        >
-          <DialogHeader className="space-y-1 border-b px-6 py-5">
-            <DialogTitle className="flex items-center gap-2 text-base font-bold text-red-700">
-              <PowerOff className="h-4 w-4 text-red-600" />
-              Deactivate Eli Orchestrator
-            </DialogTitle>
-            <DialogDescription className="text-sm text-muted-foreground">
-              You are about to deactivate Eli Orchestrator for{" "}
-              <strong className="text-foreground">
-                {deactivateModalProp?.name}
-              </strong>
-              . All AI-driven communications will stop and revert to your
-              previous setup.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="max-h-[65vh] space-y-5 overflow-y-auto px-6 py-5">
-            {/* What will change (opposite of Go Live) */}
-            <div>
-              <h4 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-foreground">
-                <AlertCircle className="h-3.5 w-3.5 text-red-600" />
-                What will be deactivated
-              </h4>
-              <ul className="space-y-1.5 pl-5 text-sm text-muted-foreground">
-                <li className="list-disc">
-                  Automated messages from contact points and the message
-                  center will{" "}
-                  <strong className="text-foreground">
-                    stop using the Eli Orchestrator vanity number
-                  </strong>{" "}
-                  and revert to your previous phone numbers.
-                </li>
-                <li className="list-disc">
-                  The <strong className="text-foreground">chatbot</strong> on
-                  the prospect portal website will be removed for this
-                  property.
-                </li>
-                <li className="list-disc">
-                  Residents using{" "}
-                  <strong className="text-foreground">
-                    Resident Portal or Homebody
-                  </strong>{" "}
-                  will no longer see the chatbot.
-                </li>
-                <li className="list-disc">
-                  Escalations will{" "}
-                  <strong className="text-foreground">
-                    stop routing to OXP Communications
-                  </strong>{" "}
-                  and return to your prior handling workflow.
-                </li>
-              </ul>
-            </div>
-
-            {/* Optional customizations — informational */}
-            <div>
-              <h4 className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-foreground">
-                <Info className="h-3.5 w-3.5 text-blue-500" />
-                What happens to your customizations
-              </h4>
-              <p className="mb-2 text-xs text-muted-foreground">
-                Custom setup you configured stays in place — deactivating
-                only turns off the AI touchpoints, so you can flip Go Live
-                back on later without redoing setup.
-              </p>
-              <ul className="space-y-1.5 pl-5 text-sm text-muted-foreground">
-                <li className="list-disc">
-                  <strong className="text-foreground">IVR flow:</strong> Your
-                  IVR configuration is preserved, but inbound calls will no
-                  longer reach Eli Orchestrator until you reactivate.
-                </li>
-                <li className="list-disc">
-                  <strong className="text-foreground">
-                    AI-powered email:
-                  </strong>{" "}
-                  AI-drafted emails will stop sending; your existing non-AI
-                  email flow continues as it does today.
-                </li>
-              </ul>
-            </div>
-
-            {/* Impact warning — required acknowledgment */}
-            <div className="rounded-lg border border-red-300 bg-red-50 p-4">
-              <h4 className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-red-800">
-                <AlertCircle className="h-3.5 w-3.5 text-red-600" />
-                Impact on live conversations (required)
-              </h4>
-              <p className="mb-3 text-sm text-red-800">
-                Any conversations that Eli Orchestrator is currently handling
-                for this property will stop being managed by the AI.
-              </p>
-              <p className="mb-3 text-xs font-medium text-red-700">
-                ⚠ Deactivating without a staff plan in place can lead to
-                dropped conversations, missed replies, and disrupted resident
-                and lead communications.
-              </p>
-              <label className="flex cursor-pointer items-start gap-2 rounded-md border border-red-300 bg-white p-2.5 hover:bg-red-100/40">
-                <Checkbox
-                  checked={deactivateAck}
-                  onCheckedChange={(checked) =>
-                    setDeactivateAck(checked === true)
-                  }
-                  className="mt-0.5 border-red-400 data-[state=checked]:bg-red-600 data-[state=checked]:border-red-600"
-                />
-                <span className="text-sm font-medium text-red-900">
-                  I understand deactivating will stop all Eli Orchestrator
-                  activity for this property and my team will take over any
-                  in-flight lead and resident conversations.
-                </span>
-              </label>
-            </div>
-          </div>
-
-          <DialogFooter className="border-t px-6 py-4">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setDeactivateModalProp(null);
-                setDeactivateAck(false);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              disabled={!deactivateAck}
-              className="gap-1.5 bg-red-600 text-white hover:bg-red-700 disabled:bg-red-600/40"
-              onClick={() => {
-                if (deactivateModalProp) {
-                  deactivateProperty(deactivateModalProp.id);
-                }
-                setDeactivateModalProp(null);
-                setDeactivateAck(false);
-              }}
-              title={
-                !deactivateAck
-                  ? "Confirm the impact acknowledgment to enable"
-                  : undefined
-              }
-            >
-              <PowerOff className="h-3.5 w-3.5" />
-              Confirm &amp; Deactivate
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
+}
+
+function LiveChannelSummary({
+  channels,
+  number,
+}: {
+  channels?: GoLiveChannels;
+  number?: string;
+}) {
+  const parts = [
+    channels?.prospectPortal !== false ? "Prospect portal" : null,
+    channels?.residentPortal !== false ? "Resident portal" : null,
+    channels?.sms !== false && number ? `SMS ${number}` : channels?.sms !== false ? "SMS" : null,
+    channels?.email ? "Email" : "Email not connected",
+  ].filter(Boolean);
+  return <span className="tabular-nums"> · {parts.join(" · ")}</span>;
 }

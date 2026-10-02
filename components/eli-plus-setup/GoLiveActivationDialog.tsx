@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Zap,
-  CheckCircle2,
   Phone,
   AlertTriangle,
 } from "lucide-react";
@@ -26,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import type { GoLiveChannels } from "@/lib/conversations-demo-context";
 
 /** Minimal property shape shared by Agent Roster and ELI+ Setup. */
 export interface GoLiveProperty {
@@ -45,8 +45,8 @@ export interface EliNumberOption {
 interface Props {
   property: GoLiveProperty | null;
   onOpenChange: (open: boolean) => void;
-  /** Fires with the chosen Eli Orchestrator number. */
-  onConfirm: (property: GoLiveProperty, eliNumber: string) => void;
+  /** Fires with the channels the user left checked. None of them block confirm. */
+  onConfirm: (property: GoLiveProperty, selection: GoLiveChannels) => void;
   /**
    * Optional override for the number list. When omitted we generate a
    * deterministic mock pool in the property's area code.
@@ -101,27 +101,41 @@ export function buildEliNumberOptions(property: GoLiveProperty): EliNumberOption
   return pool;
 }
 
-function ChecklistRow({
+function ChannelRow({
+  checked,
+  onCheckedChange,
   title,
   children,
-  right,
+  testId,
   icon,
+  extra,
 }: {
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
   title: string;
   children: React.ReactNode;
-  right?: React.ReactNode;
+  testId: string;
   icon?: React.ReactNode;
+  extra?: React.ReactNode;
 }) {
   return (
-    <li className="flex items-start gap-3 py-2.5">
-      <span className="mt-0.5 shrink-0">
-        {icon ?? <CheckCircle2 className="h-4 w-4 text-emerald-600" />}
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold leading-5 text-foreground">{title}</p>
-        <p className="text-xs leading-4 text-muted-foreground">{children}</p>
-      </div>
-      {right && <div className="shrink-0">{right}</div>}
+    <li className="py-2.5">
+      <label className="flex cursor-pointer items-start gap-3">
+        <Checkbox
+          checked={checked}
+          onCheckedChange={(value) => onCheckedChange(value === true)}
+          className="mt-0.5"
+          data-testid={testId}
+        />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-1.5 text-sm font-semibold leading-5 text-foreground">
+            {icon}
+            {title}
+          </span>
+          <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">{children}</span>
+        </span>
+      </label>
+      {extra && <div className="pl-7 pt-2">{extra}</div>}
     </li>
   );
 }
@@ -143,14 +157,16 @@ export function GoLiveActivationDialog({
   const defaultValue = options.find((o) => o.isDefault)?.value ?? options[0]?.value ?? "";
 
   const [selectedNumber, setSelectedNumber] = useState(defaultValue);
-  const [staffTrained, setStaffTrained] = useState(false);
-  const [skipEmail, setSkipEmail] = useState(false);
+  const [prospectPortal, setProspectPortal] = useState(true);
+  const [residentPortal, setResidentPortal] = useState(true);
+  const [smsOn, setSmsOn] = useState(true);
 
   // Reset per-open so each property starts from its default number.
   useEffect(() => {
     setSelectedNumber(defaultValue);
-    setStaffTrained(false);
-    setSkipEmail(false);
+    setProspectPortal(true);
+    setResidentPortal(true);
+    setSmsOn(true);
   }, [property?.id, defaultValue]);
 
   const close = () => onOpenChange(false);
@@ -178,54 +194,69 @@ export function GoLiveActivationDialog({
 
         <div className="oxp-visible-scrollbar min-h-0 max-h-[calc(100vh-220px)] flex-1 overflow-y-scroll px-6 py-3">
           <ul className="divide-y divide-border/60">
-            <ChecklistRow
+            <ChannelRow
+              checked={prospectPortal}
+              onCheckedChange={setProspectPortal}
+              title="Prospect portal"
+              testId="channel-prospect"
+            >
+              Leasing chatbot goes live on the prospect website.
+            </ChannelRow>
+            <ChannelRow
+              checked={residentPortal}
+              onCheckedChange={setResidentPortal}
+              title="Resident portal"
+              testId="channel-resident"
+            >
+              Chatbot goes live for renewals, payments, and maintenance.
+            </ChannelRow>
+            <ChannelRow
+              checked={smsOn}
+              onCheckedChange={setSmsOn}
               title="Eli Orchestrator number"
+              testId="channel-sms"
               icon={<Phone className="h-4 w-4 text-emerald-600" />}
-              right={
-                <Select value={selectedNumber} onValueChange={setSelectedNumber}>
-                  <SelectTrigger
-                    className="h-8 w-[196px] text-xs font-medium"
-                    aria-label="Eli Orchestrator number"
-                    data-testid="eli-number-select"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className={cn("z-[150]", selectContentClassName)}>
-                    {options.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                        <span className="inline-flex items-center gap-2 tabular-nums">
-                          {opt.value}
-                          {opt.isDefault && (
-                            <Badge variant="green" className="px-1.5 py-0 text-[10px] font-semibold">
-                              Default
-                            </Badge>
-                          )}
-                          {!opt.isDefault && opt.note && (
-                            <span className="text-[10px] text-muted-foreground">{opt.note}</span>
-                          )}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              extra={
+                smsOn ? (
+                  <Select value={selectedNumber} onValueChange={setSelectedNumber}>
+                    <SelectTrigger
+                      className="h-8 w-[210px] text-xs font-medium"
+                      aria-label="Eli Orchestrator number"
+                      data-testid="eli-number-select"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className={cn("z-[150]", selectContentClassName)}>
+                      {options.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                          <span className="inline-flex items-center gap-2 tabular-nums">
+                            {opt.value}
+                            {opt.isDefault && (
+                              <Badge variant="green" className="px-1.5 py-0 text-[10px] font-semibold">
+                                Default
+                              </Badge>
+                            )}
+                            {!opt.isDefault && opt.note && (
+                              <span className="text-[10px] text-muted-foreground">{opt.note}</span>
+                            )}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : null
               }
             >
-              Contact-point and message center texts send from this number.
-            </ChecklistRow>
-
+              Texts and calls use this number. Uncheck to go live without it.
+            </ChannelRow>
             <li className="py-2.5" data-testid="email-integration-review">
               <div className="flex items-start gap-3">
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold leading-5 text-foreground">Email integration</p>
                   <p className="text-xs leading-4 text-muted-foreground">
-                    AI replies only work on email that is connected. Without it, email stays exactly as it works today.
+                    Not connected. Eli will not answer email until an address is authenticated. You can set this up before or after go live.
                   </p>
-                  <p className="mt-1.5 text-xs font-medium leading-4 text-foreground">What you miss</p>
-                  <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-xs leading-4 text-muted-foreground">
-                    <li>Prospect and resident emails are not answered by Eli.</li>
-                    <li>Staff keep handling email the current way.</li>
-                  </ul>
                   <button
                     type="button"
                     className="mt-1.5 text-xs font-medium text-emerald-700 underline underline-offset-2 hover:text-emerald-800"
@@ -237,70 +268,14 @@ export function GoLiveActivationDialog({
                   >
                     Review email integration
                   </button>
-                  <label className="mt-2 flex cursor-pointer items-start gap-2">
-                    <Checkbox
-                      checked={skipEmail}
-                      onCheckedChange={(checked) => setSkipEmail(checked === true)}
-                      className="mt-0.5"
-                      data-testid="email-skip-checkbox"
-                    />
-                    <span className="text-xs leading-4 text-foreground">
-                      Go live without email integration. I understand Eli will not answer email.
-                    </span>
-                  </label>
-                  {skipEmail && (
-                    <p className="mt-1 pl-6 text-[11px] leading-4 text-muted-foreground" data-testid="email-skip-note">
-                      You&apos;ll go live without AI email. You can connect email later.
-                    </p>
-                  )}
                 </div>
               </div>
             </li>
           </ul>
 
-          {/* Staff readiness — required, gates Confirm. Red until checked, then emerald. */}
-          <label
-            className={cn(
-              "mt-3 flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 transition-colors",
-              staffTrained
-                ? "border-emerald-200 bg-emerald-50 hover:bg-emerald-100/40"
-                : "border-red-300 bg-red-50 hover:bg-red-100/40"
-            )}
-          >
-            <Checkbox
-              checked={staffTrained}
-              onCheckedChange={(checked) => setStaffTrained(checked === true)}
-              className={cn(
-                "mt-0.5",
-                staffTrained
-                  ? "border-emerald-500 data-[state=checked]:border-emerald-600 data-[state=checked]:bg-emerald-600 data-[state=checked]:text-white"
-                  : "border-red-400 data-[state=checked]:border-red-600 data-[state=checked]:bg-red-600"
-              )}
-              data-testid="staff-trained-checkbox"
-            />
-            <span className="min-w-0">
-              <span
-                className={cn(
-                  "block text-sm font-medium leading-5",
-                  staffTrained ? "text-emerald-900" : "text-red-900"
-                )}
-              >
-                My staff is trained to handle lead and resident replies and escalations in OXP
-                Communications.
-              </span>
-              {staffTrained ? (
-                <span className="mt-0.5 flex items-center gap-1 text-[11px] text-emerald-700">
-                  <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-600" />
-                  Staff readiness confirmed.
-                </span>
-              ) : (
-                <span className="mt-0.5 flex items-center gap-1 text-[11px] text-red-700">
-                  <AlertTriangle className="h-3 w-3 shrink-0 text-red-600" />
-                  Required. Untrained staff leads to missed escalations and lost leases.
-                </span>
-              )}
-            </span>
-          </label>
+          <p className="mt-3 text-xs leading-4 text-muted-foreground">
+            We hope you reviewed these. You can still go live. Turn a channel off later from Agent Roster.
+          </p>
         </div>
 
         <DialogFooter className="border-t px-6 py-3.5">
@@ -308,11 +283,17 @@ export function GoLiveActivationDialog({
             Cancel
           </Button>
           <Button
-            disabled={!staffTrained}
-            className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-emerald-600/40"
-            title={!staffTrained ? "Confirm staff readiness to enable" : undefined}
+            className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
             onClick={() => {
-              if (property) onConfirm(property, selectedNumber);
+              if (property) {
+                onConfirm(property, {
+                  prospectPortal,
+                  residentPortal,
+                  sms: smsOn,
+                  email: false,
+                  eliNumber: smsOn ? selectedNumber : "",
+                });
+              }
               close();
             }}
             data-testid="confirm-go-live"
