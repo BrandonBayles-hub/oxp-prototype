@@ -223,7 +223,6 @@ export function GoLiveActivationDialog({
   const [selectedNumber, setSelectedNumber] = useState(defaultValue);
   const [prospectPortal, setProspectPortal] = useState(true);
   const [residentPortal, setResidentPortal] = useState(true);
-  const [smsOn, setSmsOn] = useState(true);
   const [staffTrained, setStaffTrained] = useState(false);
 
   // Reset per-open so each property starts from its default number.
@@ -231,7 +230,6 @@ export function GoLiveActivationDialog({
     setSelectedNumber(defaultValue);
     setProspectPortal(true);
     setResidentPortal(true);
-    setSmsOn(true);
     setStaffTrained(false);
   }, [property?.id, defaultValue]);
 
@@ -286,42 +284,36 @@ export function GoLiveActivationDialog({
                 ? "Residents using Resident Portal or Homebody see the chatbot for renewals, payments, and maintenance."
                 : "No chatbot for residents. You can turn it on later from Agent Roster."}
             </SettingRow>
-            <SettingRow
+            <InfoRow
               icon={<CheckCircle2 className="h-4 w-4" />}
               title="Eli Orchestrator number"
-              checked={smsOn}
-              onCheckedChange={setSmsOn}
               testId="channel-sms"
               extra={
-                smsOn ? (
-                  <Select value={selectedNumber} onValueChange={setSelectedNumber}>
-                    <SelectTrigger
-                      className="h-8 w-[210px] text-xs font-medium"
-                      aria-label="Eli Orchestrator number"
-                      data-testid="eli-number-select"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className={cn("z-[150]", selectContentClassName)}>
-                      {options.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                          <span className="inline-flex items-center gap-2 tabular-nums">
-                            {opt.value}
-                            {!opt.isDefault && opt.note && (
-                              <span className="text-[10px] text-muted-foreground">{opt.note}</span>
-                            )}
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : null
+                <Select value={selectedNumber} onValueChange={setSelectedNumber}>
+                  <SelectTrigger
+                    className="h-8 w-[210px] text-xs font-medium"
+                    aria-label="Eli Orchestrator number"
+                    data-testid="eli-number-select"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className={cn("z-[150]", selectContentClassName)}>
+                    {options.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                        <span className="inline-flex items-center gap-2 tabular-nums">
+                          {opt.value}
+                          {!opt.isDefault && opt.note && (
+                            <span className="text-[10px] text-muted-foreground">{opt.note}</span>
+                          )}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               }
             >
-              {smsOn
-                ? "Automated texts and calls from contact points and the message center use this number."
-                : "Go live without texts and calls. You can add a number later from Agent Roster."}
-            </SettingRow>
+              Automated texts and calls from contact points and the message center use this number. Pick a different one if you need to.
+            </InfoRow>
             <InfoRow
               icon={<CheckCircle2 className="h-4 w-4" />}
               title="Escalations go to OXP Communications"
@@ -429,9 +421,9 @@ export function GoLiveActivationDialog({
                 onConfirm(property, {
                   prospectPortal,
                   residentPortal,
-                  sms: smsOn,
+                  sms: true,
                   email: false,
-                  eliNumber: smsOn ? selectedNumber : "",
+                  eliNumber: selectedNumber,
                 });
               }
               close();
