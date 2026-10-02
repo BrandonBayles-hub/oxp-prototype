@@ -3,14 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Zap,
-  Phone,
   AlertTriangle,
   CheckCircle2,
-  Globe,
-  Home,
-  Inbox,
-  Mail,
-  PhoneForwarded,
 } from "lucide-react";
 import {
   Dialog,
@@ -173,7 +167,7 @@ function InfoRow({
   icon,
   title,
   children,
-  tone = "slate",
+  tone = "emerald",
   testId,
   badge,
   extra,
@@ -271,7 +265,7 @@ export function GoLiveActivationDialog({
           />
           <ul className="divide-y divide-border/60">
             <SettingRow
-              icon={<Globe className="h-4 w-4" />}
+              icon={<CheckCircle2 className="h-4 w-4" />}
               title="Prospect portal chatbot"
               checked={prospectPortal}
               onCheckedChange={setProspectPortal}
@@ -282,7 +276,7 @@ export function GoLiveActivationDialog({
                 : "No chatbot on the prospect portal. You can turn it on later from Agent Roster."}
             </SettingRow>
             <SettingRow
-              icon={<Home className="h-4 w-4" />}
+              icon={<CheckCircle2 className="h-4 w-4" />}
               title="Resident portal chatbot"
               checked={residentPortal}
               onCheckedChange={setResidentPortal}
@@ -293,7 +287,7 @@ export function GoLiveActivationDialog({
                 : "No chatbot for residents. You can turn it on later from Agent Roster."}
             </SettingRow>
             <SettingRow
-              icon={<Phone className="h-4 w-4" />}
+              icon={<CheckCircle2 className="h-4 w-4" />}
               title="Eli Orchestrator number"
               checked={smsOn}
               onCheckedChange={setSmsOn}
@@ -334,28 +328,7 @@ export function GoLiveActivationDialog({
                 : "Go live without texts and calls. You can add a number later from Agent Roster."}
             </SettingRow>
             <InfoRow
-              icon={<Inbox className="h-4 w-4" />}
-              title="Escalations go to OXP Communications"
-              testId="channel-escalations"
-            >
-              When Eli can&apos;t resolve a conversation, it routes to OXP Communications for your staff.
-            </InfoRow>
-          </ul>
-
-          <SectionTitle
-            title="Optional customizations"
-            subtitle="Not required to go live. Review these if you already use IVR or custom email."
-          />
-          <ul className="divide-y divide-border/60">
-            <InfoRow
-              icon={<PhoneForwarded className="h-4 w-4" />}
-              title="IVR flow"
-              testId="channel-ivr"
-            >
-              If you use voice, route the Eli Orchestrator number behind your Leasing AI and Maintenance AI options so inbound calls reach the AI.
-            </InfoRow>
-            <InfoRow
-              icon={<Mail className="h-4 w-4" />}
+              icon={<AlertTriangle className="h-4 w-4" />}
               tone="amber"
               title="AI-powered email"
               testId="email-integration-review"
@@ -380,6 +353,27 @@ export function GoLiveActivationDialog({
               }
             >
               Connect your custom email to turn on AI emails. Until then, your current email flow keeps working. Set this up before or after go live.
+            </InfoRow>
+            <InfoRow
+              icon={<CheckCircle2 className="h-4 w-4" />}
+              title="Escalations go to OXP Communications"
+              testId="channel-escalations"
+            >
+              When Eli can&apos;t resolve a conversation, it routes to OXP Communications for your staff.
+            </InfoRow>
+          </ul>
+
+          <SectionTitle
+            title="Optional customizations"
+            subtitle="Not required to go live. Review this if you already use IVR."
+          />
+          <ul className="divide-y divide-border/60">
+            <InfoRow
+              icon={<CheckCircle2 className="h-4 w-4" />}
+              title="IVR flow"
+              testId="channel-ivr"
+            >
+              If you use voice, route the Eli Orchestrator number behind your Leasing AI and Maintenance AI options so inbound calls reach the AI.
             </InfoRow>
           </ul>
 
