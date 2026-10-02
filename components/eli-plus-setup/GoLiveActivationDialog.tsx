@@ -111,6 +111,8 @@ function ChannelRow({
   testId,
   icon,
   extra,
+  disabled,
+  badge,
 }: {
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
@@ -119,20 +121,24 @@ function ChannelRow({
   testId: string;
   icon?: React.ReactNode;
   extra?: React.ReactNode;
+  disabled?: boolean;
+  badge?: React.ReactNode;
 }) {
   return (
     <li className="py-2.5">
-      <label className="flex cursor-pointer items-start gap-3">
+      <label className={cn("flex items-start gap-3", disabled ? "cursor-default" : "cursor-pointer")}>
         <Checkbox
           checked={checked}
           onCheckedChange={(value) => onCheckedChange(value === true)}
-          className="mt-0.5"
+          disabled={disabled}
+          className="mt-0.5 disabled:opacity-60"
           data-testid={testId}
         />
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5 text-sm font-semibold leading-5 text-foreground">
             {icon}
             {title}
+            {badge}
           </span>
           <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">{children}</span>
         </span>
@@ -163,6 +169,7 @@ export function GoLiveActivationDialog({
   const [residentPortal, setResidentPortal] = useState(true);
   const [smsOn, setSmsOn] = useState(true);
   const [staffTrained, setStaffTrained] = useState(false);
+  const [ivrOn, setIvrOn] = useState(false);
 
   // Reset per-open so each property starts from its default number.
   useEffect(() => {
@@ -171,6 +178,7 @@ export function GoLiveActivationDialog({
     setResidentPortal(true);
     setSmsOn(true);
     setStaffTrained(false);
+    setIvrOn(false);
   }, [property?.id, defaultValue]);
 
   const close = () => onOpenChange(false);
@@ -257,15 +265,20 @@ export function GoLiveActivationDialog({
             >
               Automated messages from contact points and the message center will switch to this number. Uncheck to go live without texts and calls.
             </ChannelRow>
-            <li className="flex items-start gap-3 py-2.5" data-testid="escalations-notice">
-              <Info className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />
-              <div className="min-w-0">
-                <p className="text-sm font-semibold leading-5 text-foreground">Escalations</p>
-                <p className="mt-0.5 text-xs leading-4 text-muted-foreground">
-                  All escalations will begin routing to the OXP Communications area for staff resolution. This happens when you go live and is not optional.
-                </p>
-              </div>
-            </li>
+            <ChannelRow
+              checked
+              onCheckedChange={() => {}}
+              disabled
+              title="Escalations to OXP Communications"
+              testId="channel-escalations"
+              badge={
+                <Badge variant="secondary" className="px-1.5 py-0 text-[10px] font-semibold">
+                  Always on
+                </Badge>
+              }
+            >
+              All escalations route to OXP Communications for staff resolution once you go live.
+            </ChannelRow>
           </ul>
 
           <p className="mt-4 flex items-center gap-1.5 text-sm font-semibold text-foreground">
@@ -273,37 +286,50 @@ export function GoLiveActivationDialog({
             Optional customizations
           </p>
           <p className="mt-1 text-xs leading-4 text-muted-foreground">
-            These aren&apos;t required to go live. If you already use IVR or custom email, review them so those flows behave the way you expect.
+            Not required to go live. Check these if you already use IVR or custom email.
           </p>
           <ul className="mt-1 divide-y divide-border/60">
-            <li className="py-2.5" data-testid="ivr-optional">
-              <p className="text-sm font-semibold leading-5 text-foreground">IVR flow</p>
-              <p className="mt-0.5 text-xs leading-4 text-muted-foreground">
-                If you use voice, you can route the Eli Orchestrator number behind your Leasing AI and Maintenance AI options so inbound calls reach the AI. This does not block go live.
-              </p>
-            </li>
-            <li className="py-2.5" data-testid="email-integration-review">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold leading-5 text-foreground">AI-powered email</p>
-                  <p className="text-xs leading-4 text-muted-foreground">
-                    Not connected. Integrate your custom email to enable Eli Orchestrator AI emails. Otherwise your existing non-AI email flow continues as it does today. You can set this up before or after go live.
-                  </p>
-                  <button
-                    type="button"
-                    className="mt-1.5 text-xs font-medium text-emerald-700 underline underline-offset-2 hover:text-emerald-800"
-                    onClick={() => {
-                      close();
-                      onReviewEmail?.();
-                    }}
-                    data-testid="review-email-integration"
-                  >
-                    Review email integration
-                  </button>
-                </div>
-              </div>
-            </li>
+            <ChannelRow
+              checked={ivrOn}
+              onCheckedChange={setIvrOn}
+              title="IVR flow"
+              testId="channel-ivr"
+              badge={
+                <Badge variant="secondary" className="px-1.5 py-0 text-[10px] font-semibold">
+                  Optional
+                </Badge>
+              }
+            >
+              Route the Eli Orchestrator number behind your Leasing AI and Maintenance AI IVR options so inbound calls reach the AI.
+            </ChannelRow>
+            <ChannelRow
+              checked={false}
+              onCheckedChange={() => {}}
+              disabled
+              title="AI-powered email"
+              testId="email-integration-review"
+              badge={
+                <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0 text-[10px] font-semibold text-amber-700">
+                  <AlertTriangle className="h-2.5 w-2.5" />
+                  Not connected
+                </span>
+              }
+              extra={
+                <button
+                  type="button"
+                  className="text-xs font-medium text-emerald-700 underline underline-offset-2 hover:text-emerald-800"
+                  onClick={() => {
+                    close();
+                    onReviewEmail?.();
+                  }}
+                  data-testid="review-email-integration"
+                >
+                  Review email integration
+                </button>
+              }
+            >
+              Connect your custom email to turn on AI emails. Until then your current email flow keeps working. You can set this up before or after go live.
+            </ChannelRow>
           </ul>
 
           <label
