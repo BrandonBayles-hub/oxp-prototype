@@ -3241,7 +3241,7 @@ export default function AgentBuilderPage() {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalStep, setModalStep] = useState<ModalStep>({ kind: "type-select" });
-  const [typeFilter, setTypeFilter] = useState<"all" | AgentType>("all");
+  const [builderTab, setBuilderTab] = useState<"workflows" | "ai-agents">("workflows");
   const [statusFilter, setStatusFilter] = useState<"all" | AgentStatusValue>("all");
   const { viewerRole, canCreate, canEdit, isContracted, contractedPropertyIds, addContractedProperties, clearContract } = useAgentBuilderViewerRole();
 
@@ -3351,11 +3351,12 @@ export default function AgentBuilderPage() {
 
   const filteredAgents = useMemo(() =>
     agents.filter((a) => {
-      if (typeFilter !== "all" && a.type !== typeFilter) return false;
+      if (builderTab === "workflows" && a.type !== "deterministic") return false;
+      if (builderTab === "ai-agents" && a.type !== "ai-powered") return false;
       if (statusFilter !== "all" && a.status !== statusFilter) return false;
       return true;
     }),
-    [agents, typeFilter, statusFilter]
+    [agents, builderTab, statusFilter]
   );
 
   const counts = useMemo(() => ({
@@ -3370,7 +3371,7 @@ export default function AgentBuilderPage() {
   }), [agents]);
 
   const openBuilder = () => {
-    setModalStep({ kind: "type-select" });
+    setModalStep(builderTab === "ai-agents" ? { kind: "ai-powered" } : { kind: "deterministic" });
     setModalOpen(true);
   };
 
@@ -3696,11 +3697,14 @@ export default function AgentBuilderPage() {
     <>
       <PageHeader
         title="Agent Builder"
-        description="Build and manage deterministic workflows and AI-powered agents — all from one place."
+        description={builderTab === "workflows"
+          ? "Build and manage AI-built deterministic workflows — consistent, rule-based automation."
+          : "Build and manage AI-powered agents that converse, analyze, and adapt."
+        }
         actions={
           canCreate ? (
             <Button onClick={openBuilder}>
-              <Plus className="mr-2 h-4 w-4" /> Build New Agent
+              <Plus className="mr-2 h-4 w-4" /> {builderTab === "ai-agents" ? "Build New AI Agent" : "Build New Workflow"}
             </Button>
           ) : (
             <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[12px] text-slate-600">
@@ -3711,10 +3715,54 @@ export default function AgentBuilderPage() {
         }
       />
 
+      {/* Sub-tabs: Workflows vs AI Agents */}
+      <div className="mb-4 flex items-center gap-1 border-b border-border">
+        <button
+          type="button"
+          onClick={() => { setBuilderTab("workflows"); setStatusFilter("all"); }}
+          className={`relative flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+            builderTab === "workflows"
+              ? "text-emerald-700"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Workflow className="h-4 w-4" />
+          AI-Built Workflows
+          <span className={`ml-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+            builderTab === "workflows" ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground"
+          }`}>
+            {counts.deterministic}
+          </span>
+          {builderTab === "workflows" && (
+            <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-emerald-600" />
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => { setBuilderTab("ai-agents"); setStatusFilter("all"); }}
+          className={`relative flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+            builderTab === "ai-agents"
+              ? "text-indigo-700"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <BrainCircuit className="h-4 w-4" />
+          AI Agents
+          <span className={`ml-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+            builderTab === "ai-agents" ? "bg-indigo-100 text-indigo-700" : "bg-muted text-muted-foreground"
+          }`}>
+            {counts.ai}
+          </span>
+          {builderTab === "ai-agents" && (
+            <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-indigo-600" />
+          )}
+        </button>
+      </div>
+
       {/* <TodoListBanner /> */}
 
-      {/* PLG: Free agent allowance banner */}
-      <div className="mb-4 rounded-lg border border-violet-200 bg-gradient-to-r from-violet-50 to-indigo-50 px-4 py-3">
+      {/* PLG: Free agent allowance banner — workflows tab only */}
+      {builderTab === "workflows" && <div className="mb-4 rounded-lg border border-violet-200 bg-gradient-to-r from-violet-50 to-indigo-50 px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-100">
@@ -3755,7 +3803,7 @@ export default function AgentBuilderPage() {
                 : `AI-powered agents and additional deterministic agents beyond ${FREE_AGENT_LIMIT} require upgrading to a usage-based plan. Upgrade is self-service — no sales call needed.`}
             </span>
           </div>
-        </div>
+        </div>}
 
       {/* Non-contracted spend summary — show $0 spend but highlight savings */}
       {canEdit && !isContracted && (
@@ -4458,20 +4506,20 @@ export default function AgentBuilderPage() {
 
       {/* Filters & stats */}
       <div className="mb-5 flex flex-wrap items-center gap-3">
-        {/* Quick stats */}
+        {/* Quick stats — scoped to active tab */}
         <div className="flex items-center gap-3 rounded-lg border border-border bg-white px-3 py-2">
           <div className="text-center">
-            <p className="text-lg font-semibold text-foreground">{counts.total}</p>
+            <p className="text-lg font-semibold text-foreground">{builderTab === "workflows" ? counts.deterministic : counts.ai}</p>
             <p className="text-[10px] text-muted-foreground">Total</p>
           </div>
           <div className="h-7 w-px bg-border" />
           <div className="text-center">
-            <p className="text-lg font-semibold text-emerald-700">{counts.live}</p>
+            <p className="text-lg font-semibold text-emerald-700">{filteredAgents.filter((a) => a.status === "live").length}</p>
             <p className="text-[10px] text-muted-foreground">Live</p>
           </div>
           <div className="h-7 w-px bg-border" />
           <div className="text-center">
-            <p className="text-lg font-semibold text-amber-700">{counts.sandbox}</p>
+            <p className="text-lg font-semibold text-amber-700">{filteredAgents.filter((a) => a.status === "sandbox").length}</p>
             <p className="text-[10px] text-muted-foreground">Sandbox</p>
           </div>
         </div>
@@ -4483,7 +4531,8 @@ export default function AgentBuilderPage() {
           <span className="mr-1 text-[11px] font-medium text-muted-foreground">Status:</span>
           {(["all", "live", "sandbox", "paused", "disabled", "draft"] as const).map((s) => {
             const label = s === "all" ? "All" : STATUS_STYLE[s].label;
-            const count = s === "all" ? counts.total : counts[s];
+            const tabAgents = agents.filter((a) => builderTab === "workflows" ? a.type === "deterministic" : a.type === "ai-powered");
+            const count = s === "all" ? tabAgents.length : tabAgents.filter((a) => a.status === s).length;
             return (
               <button
                 key={s}
@@ -4497,23 +4546,6 @@ export default function AgentBuilderPage() {
               </button>
             );
           })}
-        </div>
-
-        {/* Type filter */}
-        <div className="flex items-center gap-1">
-          <span className="mr-1 text-[11px] font-medium text-muted-foreground">Type:</span>
-          {(["all", "deterministic", "ai-powered"] as const).map((f) => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => setTypeFilter(f)}
-              className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                typeFilter === f ? "bg-foreground text-background" : "bg-muted text-muted-foreground hover:bg-muted/80"
-              }`}
-            >
-              {f === "all" ? "All" : f === "deterministic" ? `Workflows (${counts.deterministic})` : `AI Agents (${counts.ai})`}
-            </button>
-          ))}
         </div>
       </div>
 
@@ -4611,11 +4643,27 @@ export default function AgentBuilderPage() {
 
       {filteredAgents.length === 0 && (
         <div className="rounded-xl border border-dashed border-border bg-white p-12 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-indigo-50">
-            <Sparkles className="h-6 w-6 text-indigo-600" />
+          <div className={`mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full ${builderTab === "ai-agents" ? "bg-indigo-50" : "bg-emerald-50"}`}>
+            {builderTab === "ai-agents"
+              ? <BrainCircuit className="h-6 w-6 text-indigo-600" />
+              : <Workflow className="h-6 w-6 text-emerald-600" />
+            }
           </div>
-          <p className="text-sm font-medium text-foreground">No agents match your filter</p>
-          <p className="mt-1 text-[13px] text-muted-foreground">Try adjusting your filters or build a new agent.</p>
+          <p className="text-sm font-medium text-foreground">
+            {builderTab === "ai-agents" ? "No AI agents match your filter" : "No workflows match your filter"}
+          </p>
+          <p className="mt-1 text-[13px] text-muted-foreground">
+            {builderTab === "ai-agents"
+              ? "Try adjusting your filters or build a new AI agent."
+              : "Try adjusting your filters or build a new workflow."
+            }
+          </p>
+          {canCreate && (
+            <Button size="sm" className="mt-4" onClick={openBuilder}>
+              <Plus className="mr-2 h-4 w-4" />
+              {builderTab === "ai-agents" ? "Build New AI Agent" : "Build New Workflow"}
+            </Button>
+          )}
         </div>
       )}
 
@@ -4639,85 +4687,11 @@ export default function AgentBuilderPage() {
       {/* Builder Modal */}
       <Dialog open={modalOpen} onOpenChange={(v) => { if (!v) { setModalOpen(false); setModalStep({ kind: "type-select" }); } }}>
         <DialogContent className="flex h-[85vh] max-w-[90vw] flex-col gap-0 overflow-hidden p-0">
-          {modalStep.kind === "type-select" && (
-            <div className="flex h-full flex-col">
-              <div className="shrink-0 border-b border-border px-6 py-4">
-                <h2 className="text-lg font-semibold text-foreground">Build New Agent</h2>
-                <p className="text-sm text-muted-foreground">Choose the execution model that fits your use case.</p>
-              </div>
-              <div className="flex flex-1 items-center justify-center px-6">
-                {(() => {
-                  const freeRemaining = FREE_AGENT_LIMIT - freeAgentsUsed;
-                  return (
-                    <div className="grid max-w-2xl grid-cols-2 gap-5">
-                      <button
-                        type="button"
-                        onClick={() => setModalStep({ kind: "deterministic" })}
-                        className="group flex flex-col items-start rounded-xl border-2 border-border bg-white p-5 text-left transition-all hover:border-emerald-400 hover:shadow-lg"
-                      >
-                        <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100">
-                          <Workflow className="h-6 w-6" />
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="text-base font-semibold text-foreground">AI-Built Workflow</h3>
-                        </div>
-                        <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-                          AI builds a fixed workflow from your description. Once created, every run follows the same steps—predictable and consistent.
-                        </p>
-                        {!isContracted && (
-                          <div className={`mt-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ${freeRemaining > 0 ? "bg-emerald-50 text-emerald-700" : "bg-muted text-muted-foreground"}`}>
-                            <Gift className="h-3 w-3" />
-                            {freeRemaining > 0
-                              ? `${freeRemaining} of ${FREE_AGENT_LIMIT} free workflows remaining`
-                              : `${FREE_AGENT_LIMIT} of ${FREE_AGENT_LIMIT} free workflows used`}
-                          </div>
-                        )}
-                        <ul className="mt-3 space-y-1.5 text-[12px] text-muted-foreground">
-                          <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-600" /> Same output every run</li>
-                          <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-600" /> Lower cost than AI Agents</li>
-                          <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-600" /> Ideal for regulated processes</li>
-                          <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-600" /> Test in sandbox, promote to live</li>
-                        </ul>
-                        <span className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-700">
-                          <Code2 className="h-3 w-3" /> Best for: processes that must run identically every time
-                        </span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setModalStep({ kind: "ai-powered" })}
-                        className="group flex flex-col items-start rounded-xl border-2 border-border bg-white p-5 text-left transition-all hover:border-indigo-400 hover:shadow-lg"
-                      >
-                        <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 group-hover:bg-indigo-100">
-                          <BrainCircuit className="h-6 w-6" />
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="text-base font-semibold text-foreground">AI Agent</h3>
-                        </div>
-                        <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-                          Uses AI while it runs—so it can converse, analyze, notify, and adapt to each situation to drive the right outcome.
-                        </p>
-                        <ul className="mt-3 space-y-1.5 text-[12px] text-muted-foreground">
-                          <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-600" /> Handles nuanced scenarios</li>
-                          <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-600" /> Analyzes and acts on context</li>
-                          <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-600" /> Adapts to new situations</li>
-                          <li className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-indigo-600" /> Full guardrail protection</li>
-                        </ul>
-                        <span className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-3 py-1 text-[11px] font-semibold text-indigo-700">
-                          <BrainCircuit className="h-3 w-3" /> Best for: conversations, analysis, and work that needs judgment
-                        </span>
-                      </button>
-                    </div>
-                  );
-                })()}
-              </div>
-            </div>
-          )}
 
           {modalStep.kind === "deterministic" && (
             <DeterministicBuilderModal
               onComplete={handleBuilderComplete}
-              onBack={modalStep.freeOnly ? undefined : () => setModalStep({ kind: "type-select" })}
+              onBack={undefined}
               onClose={() => { setModalOpen(false); setModalStep({ kind: "type-select" }); }}
               forkFrom={modalStep.forkFrom}
               forkMode={modalStep.forkMode}
@@ -4727,7 +4701,7 @@ export default function AgentBuilderPage() {
           {modalStep.kind === "ai-powered" && (
             <div className="flex h-full flex-col">
               <div className="flex shrink-0 items-center gap-3 border-b border-border px-6 py-4">
-                <button type="button" onClick={() => setModalStep({ kind: "type-select" })} className="rounded-md p-1 text-muted-foreground hover:text-foreground">
+                <button type="button" onClick={() => { setModalOpen(false); setModalStep({ kind: "type-select" }); }} className="rounded-md p-1 text-muted-foreground hover:text-foreground">
                   <ArrowLeft className="h-4 w-4" />
                 </button>
                 <div className="flex items-center gap-2">
