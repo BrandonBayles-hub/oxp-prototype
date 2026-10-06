@@ -67,6 +67,14 @@ export const VIEWPORT_PRESET_SIZES: Record<
   "1600x900": { width: 1600, height: 900 },
 };
 
+export interface GoLiveChannels {
+  prospectPortal: boolean;
+  residentPortal: boolean;
+  sms: boolean;
+  email: boolean;
+  eliNumber: string;
+}
+
 type ConversationsDemoContextValue = {
   /** Increments each time the demo should open the Entrata profile without the threads panel. */
   profileCommsPopupRequest: number;
@@ -320,7 +328,14 @@ type ConversationsDemoContextValue = {
   toggleGoLiveAutomationEnabled: () => void;
   /** Set of property IDs that have been activated via the "Go Live" flow. */
   activatedPropertyIds: Set<string>;
-  activateProperty: (id: string) => void;
+  /**
+   * Eli Orchestrator number chosen in the Go Live dialog, keyed by property
+   * ID. Only present for properties activated through the dialog.
+   */
+  activatedPropertyNumbers: Record<string, string>;
+  /** What went live with each property. Read-only after confirm. */
+  activatedPropertyChannels: Record<string, GoLiveChannels>;
+  activateProperty: (id: string, selection?: GoLiveChannels) => void;
   deactivateProperty: (id: string) => void;
   /**
    * Super Agent 1.2-only "Testing" mode. When on, the conversation
@@ -482,13 +497,33 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
   const toggleTestingModeEnabled = useCallback(() => {
     setTestingModeEnabled((v) => !v);
   }, []);
-  const activateProperty = useCallback((id: string) => {
+  const [activatedPropertyNumbers, setActivatedPropertyNumbers] = useState<Record<string, string>>({});
+  const [activatedPropertyChannels, setActivatedPropertyChannels] = useState<Record<string, GoLiveChannels>>({});
+  const activateProperty = useCallback((id: string, selection?: GoLiveChannels) => {
     setActivatedPropertyIds((prev) => new Set(prev).add(id));
+    if (selection?.eliNumber) {
+      setActivatedPropertyNumbers((prev) => ({ ...prev, [id]: selection.eliNumber }));
+    }
+    if (selection) {
+      setActivatedPropertyChannels((prev) => ({ ...prev, [id]: selection }));
+    }
   }, []);
   const deactivateProperty = useCallback((id: string) => {
     setActivatedPropertyIds((prev) => {
       const next = new Set(prev);
       next.delete(id);
+      return next;
+    });
+    setActivatedPropertyNumbers((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    setActivatedPropertyChannels((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
       return next;
     });
   }, []);
@@ -613,6 +648,8 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
       goLiveAutomationEnabled,
       toggleGoLiveAutomationEnabled,
       activatedPropertyIds,
+      activatedPropertyNumbers,
+      activatedPropertyChannels,
       activateProperty,
       deactivateProperty,
       testingModeEnabled,
@@ -666,6 +703,8 @@ export function ConversationsDemoProvider({ children }: { children: ReactNode })
       goLiveAutomationEnabled,
       toggleGoLiveAutomationEnabled,
       activatedPropertyIds,
+      activatedPropertyNumbers,
+      activatedPropertyChannels,
       activateProperty,
       deactivateProperty,
       testingModeEnabled,

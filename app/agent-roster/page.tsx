@@ -2,7 +2,7 @@
 
 import { Suspense, useState, useMemo, useEffect, useRef } from "react";
 import Image from "next/image";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import {
   useAgents,
@@ -58,6 +58,7 @@ const AGENT_TYPE_ICON: Record<AgentType, string> = {
 import { useFeedback } from "@/lib/feedback-context";
 import { useConversationsDemo } from "@/lib/conversations-demo-context";
 import { Checkbox } from "@/components/ui/checkbox";
+import { GoLiveActivationDialog } from "@/components/eli-plus-setup/GoLiveActivationDialog";
 import { LeasingPage } from "@/components/eli-plus-setup/pages/LeasingPage";
 import { PaymentsPage } from "@/components/eli-plus-setup/pages/PaymentsPage";
 import { MaintenanceFullPage } from "@/components/eli-plus-setup/pages/MaintenanceFullPage";
@@ -6522,9 +6523,9 @@ type CloneSettingType =
   | "pre_acceptance_confirmation";
 
 function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string; SettingsPage: React.ComponentType<FlyoutPageProps> }) {
-  const { goLiveAutomationEnabled, activatedPropertyIds, activateProperty } = useConversationsDemo();
+  const router = useRouter();
+  const { goLiveAutomationEnabled, activatedPropertyIds, activatedPropertyNumbers, activatedPropertyChannels, activateProperty } = useConversationsDemo();
   const [goLiveModalProp, setGoLiveModalProp] = useState<typeof AGENT_FLYOUT_PROPERTIES[0] | null>(null);
-  const [goLiveStaffTrained, setGoLiveStaffTrained] = useState(false);
   const [selectedProperty, setSelectedProperty] = useState<typeof AGENT_FLYOUT_PROPERTIES[0] | null>(null);
   const [visibleIds, setVisibleIds] = useState<Set<string>>(() => new Set(AGENT_FLYOUT_PROPERTIES.map(p => p.id)));
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -6838,12 +6839,28 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
                         Go Live
                       </button>
                     ) : (
-                      <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${
-                        isActive
-                          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                          : "bg-zinc-100 text-zinc-500 border-zinc-200"
-                      }`}>
-                        {isActive ? "Active" : prop.status}
+                      <span className="inline-flex items-center gap-2">
+                        <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${
+                          isActive
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                            : "bg-zinc-100 text-zinc-500 border-zinc-200"
+                        }`}>
+                          {isActive ? "Active" : prop.status}
+                        </span>
+                        {wasActivated && activatedPropertyNumbers[prop.id] && (
+                          <span className="text-[11px] tabular-nums text-muted-foreground">
+                            Eli {activatedPropertyNumbers[prop.id]}
+                          </span>
+                        )}
+                        {wasActivated && activatedPropertyChannels[prop.id] && (
+                          <span className="text-[11px] text-muted-foreground">
+                            {[
+                              activatedPropertyChannels[prop.id].prospectPortal ? "Prospect" : null,
+                              activatedPropertyChannels[prop.id].residentPortal ? "Resident" : null,
+                              activatedPropertyChannels[prop.id].email ? "Email" : null,
+                            ].filter(Boolean).join(" · ")}
+                          </span>
+                        )}
                       </span>
                     )}
                   </td>
@@ -6902,112 +6919,26 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
         )}
       </div>
 
-      {/* ── Go Live Confirmation Modal ── */}
-      <Dialog
-        open={!!goLiveModalProp}
+      {/* ── Go Live Confirmation Modal (shared with ELI+ Setup → Go Live) ── */}
+      <GoLiveActivationDialog
+        property={goLiveModalProp}
         onOpenChange={(open) => {
-          if (!open) {
-            setGoLiveModalProp(null);
-            setGoLiveStaffTrained(false);
-          }
+          if (!open) setGoLiveModalProp(null);
         }}
-      >
-        <DialogContent className="max-w-lg gap-0 p-0">
-          <DialogHeader className="space-y-1 border-b px-6 py-5">
-            <DialogTitle className="flex items-center gap-2 text-base font-bold">
-              <Zap className="h-4.5 w-4.5 text-emerald-600" />
-              Activate Eli Orchestrator
-            </DialogTitle>
-            <DialogDescription className="text-sm text-muted-foreground">
-              You are about to activate Eli Orchestrator for <strong className="text-foreground">{goLiveModalProp?.name}</strong>. Please review the changes below before confirming.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="max-h-[65vh] space-y-5 overflow-y-auto px-6 py-5">
-            {/* What will change */}
-            <div>
-              <h4 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-foreground">
-                <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
-                What will change
-              </h4>
-              <ul className="space-y-1.5 pl-5 text-sm text-muted-foreground">
-                <li className="list-disc">Automated messages from contact points and the message center will switch to the new <strong className="text-foreground">Eli Orchestrator vanity number</strong>.</li>
-                <li className="list-disc">A <strong className="text-foreground">chatbot</strong> will be added to the prospect portal website for this property.</li>
-                <li className="list-disc">Residents using <strong className="text-foreground">Resident Portal or Homebody</strong> will see the chatbot in their app.</li>
-                <li className="list-disc">All <strong className="text-foreground">escalations</strong> will begin routing to the OXP Communications area for staff resolution.</li>
-              </ul>
-            </div>
-
-            {/* Optional customizations — informational, not required */}
-            <div>
-              <h4 className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-foreground">
-                <Info className="h-3.5 w-3.5 text-blue-500" />
-                Optional customizations
-              </h4>
-              <p className="mb-2 text-xs text-muted-foreground">
-                These aren&apos;t required to go live, but if you already use IVR or custom email, you&apos;ll want to review them so those flows behave the way you expect.
-              </p>
-              <ul className="space-y-1.5 pl-5 text-sm text-muted-foreground">
-                <li className="list-disc">
-                  <strong className="text-foreground">IVR flow:</strong> If you use voice, you can route the Eli Orchestrator vanity number behind your Leasing AI and Maintenance AI options so inbound calls reach the AI.
-                </li>
-                <li className="list-disc">
-                  <strong className="text-foreground">AI-powered email:</strong> Integrate your custom email in OXP Communications Settings to enable Eli Orchestrator AI emails. Otherwise, your existing non-AI email flow continues to work as it does today.
-                </li>
-              </ul>
-            </div>
-
-            {/* Staff readiness — stronger red warning with acknowledgment checkbox */}
-            <div className="rounded-lg border border-red-300 bg-red-50 p-4">
-              <h4 className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-red-800">
-                <AlertCircle className="h-3.5 w-3.5 text-red-600" />
-                Staff readiness (recommended)
-              </h4>
-              <p className="mb-3 text-sm text-red-800">
-                Your team must be trained and prepared to handle all communication replies from leads and residents — including escalations — in the OXP Communications area before going live.
-              </p>
-              <p className="mb-3 text-xs font-medium text-red-700">
-                ⚠ Going live without a trained staff can lead to lead and resident conversations going unmanaged, missed escalations, and lost leases.
-              </p>
-              <label className="flex cursor-pointer items-start gap-2 rounded-md border border-red-300 bg-white p-2.5 hover:bg-red-100/40">
-                <Checkbox
-                  checked={goLiveStaffTrained}
-                  onCheckedChange={(checked) => setGoLiveStaffTrained(checked === true)}
-                  className="mt-0.5 border-red-400 data-[state=checked]:bg-red-600 data-[state=checked]:border-red-600"
-                />
-                <span className="text-sm font-medium text-red-900">
-                  I confirm my staff is trained and ready to manage lead and resident communications, including escalations, in the OXP Communications area.
-                </span>
-              </label>
-            </div>
-          </div>
-
-          <DialogFooter className="border-t px-6 py-4">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setGoLiveModalProp(null);
-                setGoLiveStaffTrained(false);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              className="gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
-              onClick={() => {
-                if (goLiveModalProp) {
-                  activateProperty(goLiveModalProp.id);
-                }
-                setGoLiveModalProp(null);
-                setGoLiveStaffTrained(false);
-              }}
-            >
-              <Zap className="h-3.5 w-3.5" />
-              Confirm &amp; Go Live
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onConfirm={(prop, selection) => activateProperty(prop.id, selection)}
+        onReviewEmail={() => {
+          router.push("/getting-started?tab=eli-plus&page=email");
+        }}
+        onReviewIvr={() => {
+          router.push("/getting-started?tab=eli-plus&page=ivr-setup");
+        }}
+        onReviewAgentSettings={() => {
+          router.push("/agent-roster");
+        }}
+        onReviewPropertyWebsites={() => {
+          router.push("/getting-started?tab=eli-plus&page=privacy");
+        }}
+      />
 
       {bulkApplied && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4" onClick={() => setBulkApplied(null)}>
