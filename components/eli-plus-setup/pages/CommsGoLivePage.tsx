@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { Zap, CheckCircle2 } from "lucide-react";
 import type { PageId } from "../index";
 import { PROPERTIES } from "../data/properties";
@@ -12,6 +13,7 @@ interface Props {
 }
 
 export function CommsGoLivePage({ navigate }: Props) {
+  const router = useRouter();
   const {
     activatedPropertyIds,
     activatedPropertyNumbers,
@@ -116,6 +118,9 @@ export function CommsGoLivePage({ navigate }: Props) {
         }}
         onConfirm={(prop, selection) => activateProperty(prop.id, selection)}
         onReviewEmail={() => navigate("email")}
+        onReviewIvr={() => navigate("ivr-setup")}
+        onReviewAgentSettings={() => router.push("/agent-roster")}
+        onReviewPropertyWebsites={() => navigate("privacy")}
         contentClassName="z-[10001]"
         overlayClassName="z-[10000]"
         selectContentClassName="z-[10002]"

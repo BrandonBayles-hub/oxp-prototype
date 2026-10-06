@@ -6929,6 +6929,15 @@ function EliPlusSettingsFlyout({ agentName, SettingsPage }: { agentName: string;
         onReviewEmail={() => {
           router.push("/getting-started?tab=eli-plus&page=email");
         }}
+        onReviewIvr={() => {
+          router.push("/getting-started?tab=eli-plus&page=ivr-setup");
+        }}
+        onReviewAgentSettings={() => {
+          router.push("/agent-roster");
+        }}
+        onReviewPropertyWebsites={() => {
+          router.push("/getting-started?tab=eli-plus&page=privacy");
+        }}
       />
 
       {bulkApplied && (
