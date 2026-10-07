@@ -465,8 +465,7 @@ export function GoLiveActivationDialog({
           </DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
             Review what goes live at{" "}
-            <strong className="font-semibold text-foreground">{property?.name}</strong>.
-            {" "}Escalations always go to{" "}
+            <strong className="font-semibold text-foreground">{property?.name}</strong>{"—"}chatbots and pre-selected phone numbers are auto-verified and can be customized now or after launch, with escalations directed to{" "}
             <strong className="font-semibold text-foreground">OXP Communications</strong>.
           </DialogDescription>
         </DialogHeader>
