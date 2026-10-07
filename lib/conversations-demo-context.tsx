@@ -70,6 +70,8 @@ export const VIEWPORT_PRESET_SIZES: Record<
 export interface GoLiveChannels {
   prospectPortal: boolean;
   residentPortal: boolean;
+  /** When true and no IVR exists, ELI answers every call. Never true when the property already has an IVR. */
+  ivr: boolean;
   sms: boolean;
   email: boolean;
   eliNumber: string;

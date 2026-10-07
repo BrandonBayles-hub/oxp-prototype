@@ -18,7 +18,6 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Progress } from "@/components/ui/progress"
-import { useConversationsDemo } from "@/lib/conversations-demo-context"
 
 const BASE_SUB_ITEMS = [
   { id: "company"            as PageId, label: "Carrier Compliance",        icon: Building2,       taskIds: [] as string[], indent: false },
@@ -57,8 +56,7 @@ interface HybridShellProps {
 }
 
 export function HybridShell({ page, navigate, completedTasks, privacyPublished, emailComplete, commsComplete, ivrComplete, maintenancePending, progressPct, carrierSimMode, brandStatus, carrierActionCount, privacyActionCount, ivrActionCount, children }: HybridShellProps) {
-  const { goLiveAutomationEnabled } = useConversationsDemo()
-  const SUB_ITEMS = goLiveAutomationEnabled ? [...BASE_SUB_ITEMS, GO_LIVE_SUB_ITEM] : BASE_SUB_ITEMS
+  const SUB_ITEMS = [...BASE_SUB_ITEMS, GO_LIVE_SUB_ITEM]
   return (
     <div className="flex h-full bg-background">
       <aside

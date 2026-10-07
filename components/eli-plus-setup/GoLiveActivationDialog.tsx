@@ -43,7 +43,7 @@ export interface GoLiveProperty {
 export interface EliNumberOption {
   value: string;
   isDefault?: boolean;
-  /** Shown under the number, e.g. "Outbound default" or "Next best". */
+  /** Shown under the number, e.g. "Current outbound default" or "Next best". */
   note: string;
 }
 
@@ -118,15 +118,28 @@ export function buildEliNumberOptions(property: GoLiveProperty): EliNumberOption
   return Array.from({ length: 4 }, (_, i) => ({
     value: local(i),
     isDefault: i === 0,
-    note: i === 0 ? (hasOutbound ? "Outbound default" : "Next best") : "Local",
+    note: i === 0 ? (hasOutbound ? "Current Outbound Default" : "Next best") : "Local",
   }));
 }
+
+/** What phone menu the property already has. Demo-only until detection is wired to the VoIP data. */
+export type IvrScenario = "none" | "entrata" | "eli1";
+
+const IVR_SCENARIOS: { value: IvrScenario; label: string }[] = [
+  { value: "none", label: "No IVR detected" },
+  { value: "entrata", label: "Existing Entrata IVR" },
+  { value: "eli1", label: "ELI 1.0 IVR" },
+];
+
+/** Flip on to show the IVR-on-file switcher at the top of Go Live. */
+const SHOW_IVR_DEMO = false;
 
 /** Draft of the dialog's choices, kept in sessionStorage so leaving and returning restores them. */
 interface GoLiveDraft {
   selectedNumber: string;
   prospectPortal: boolean;
   residentPortal: boolean;
+  ivrFlow: boolean;
   staffTrained: boolean;
 }
 
@@ -285,15 +298,6 @@ function InfoRow({
   );
 }
 
-function SectionTitle({ title, subtitle }: { title: string; subtitle: string }) {
-  return (
-    <div className="pb-1 pt-3">
-      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{title}</h3>
-      <p className="mt-0.5 text-xs leading-4 text-muted-foreground">{subtitle}</p>
-    </div>
-  );
-}
-
 export function GoLiveActivationDialog({
   property,
   onOpenChange,
@@ -311,7 +315,6 @@ export function GoLiveActivationDialog({
 }: Props) {
   const email: SetupStatus = emailStatus ?? (property ? mockStatus(property, "email") : "not_done");
   const ivr: SetupStatus = ivrStatus ?? (property ? mockStatus(property, "ivr") : "not_done");
-  const agentSettings: SetupStatus = property ? mockStatus(property, "agent-settings") : "not_done";
   const [numberCopied, setNumberCopied] = useState(false);
   const [snippetCopied, setSnippetCopied] = useState(false);
   const [pageToast, setPageToast] = useState("");
@@ -329,10 +332,13 @@ export function GoLiveActivationDialog({
     return numberOptions ?? buildEliNumberOptions(property);
   }, [property, numberOptions]);
   const defaultValue = options.find((o) => o.isDefault)?.value ?? options[0]?.value ?? "";
+  const currentOutbound = options.find((o) => o.note === "Current Outbound Default")?.value ?? "";
 
   const [selectedNumber, setSelectedNumber] = useState(defaultValue);
   const [prospectPortal, setProspectPortal] = useState(true);
   const [residentPortal, setResidentPortal] = useState(true);
+  const [ivrFlow, setIvrFlow] = useState(true);
+  const [ivrScenario, setIvrScenario] = useState<IvrScenario>("none");
   const [staffTrained, setStaffTrained] = useState(false);
 
   // The dialog receives Escape before the number dropdown does, so it closes
@@ -354,18 +360,20 @@ export function GoLiveActivationDialog({
     setSelectedNumber(validNumber ? draft!.selectedNumber : defaultValue);
     setProspectPortal(draft?.prospectPortal ?? true);
     setResidentPortal(draft?.residentPortal ?? true);
+    setIvrFlow(draft?.ivrFlow ?? true);
+    setIvrScenario(ivr === "done" ? "entrata" : "none");
     setStaffTrained(draft?.staffTrained ?? false);
     setNumberCopied(false);
     onNumberMenuOpenChange(false);
     setHydratedKey(draftKey);
-  }, [draftKey, defaultValue, options]);
+  }, [draftKey, defaultValue, options, ivr]);
 
   // Save the draft whenever a choice changes while the dialog is open.
   // Only after hydration for this key, so restored values aren't overwritten.
   useEffect(() => {
     if (!draftKey || hydratedKey !== draftKey) return;
-    writeDraft(draftKey, { selectedNumber, prospectPortal, residentPortal, staffTrained });
-  }, [draftKey, hydratedKey, selectedNumber, prospectPortal, residentPortal, staffTrained]);
+    writeDraft(draftKey, { selectedNumber, prospectPortal, residentPortal, ivrFlow, staffTrained });
+  }, [draftKey, hydratedKey, selectedNumber, prospectPortal, residentPortal, ivrFlow, staffTrained]);
 
   const chatSnippet = `<script src="{$mfe_base_url}/oxp-agent-widget.js" defer></script>`;
 
@@ -376,6 +384,20 @@ export function GoLiveActivationDialog({
       window.setTimeout(() => setSnippetCopied(false), 1500);
     }).catch(() => {});
   }
+
+  const ivrLink = (
+    <button
+      type="button"
+      className="mt-1 block font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
+      onClick={() => {
+        close();
+        onReviewIvr?.();
+      }}
+      data-testid="review-ivr-setup"
+    >
+      Open IVR setup
+    </button>
+  );
 
   function copyNumber() {
     if (!selectedNumber) return;
@@ -450,10 +472,31 @@ export function GoLiveActivationDialog({
         </DialogHeader>
 
         <div className="min-h-0 max-h-[calc(100vh-220px)] flex-1 overflow-y-auto px-6 py-3 [scrollbar-width:thin]">
-          <SectionTitle
-            title="What Will Change"
-            subtitle="Chatbots are enabled and a phone number is pre-selected by default. You can customize either setting now or update them later after going live."
-          />
+          {SHOW_IVR_DEMO && <div
+            className="mb-1 flex items-center gap-2 rounded-md border border-dashed border-amber-300 bg-amber-50 px-2.5 py-1.5"
+            data-testid="ivr-demo-control"
+          >
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-800">Demo · IVR on file</span>
+            <div className="ml-auto flex gap-1">
+              {IVR_SCENARIOS.map((s) => (
+                <button
+                  key={s.value}
+                  type="button"
+                  onClick={() => setIvrScenario(s.value)}
+                  className={cn(
+                    "rounded px-2 py-0.5 text-[11px] font-medium transition-colors",
+                    ivrScenario === s.value
+                      ? "bg-amber-600 text-white"
+                      : "bg-white text-amber-900 hover:bg-amber-100"
+                  )}
+                  aria-pressed={ivrScenario === s.value}
+                  data-testid={`ivr-scenario-${s.value}`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>}
           <ul className="divide-y divide-border/60">
             <SettingRow
               title="Prospect Portal Chatbot"
@@ -515,15 +558,26 @@ export function GoLiveActivationDialog({
                 Open Agent Roster
               </button>
             </SettingRow>
+            <SettingRow
+              title="IVR Flow"
+              checked={ivrFlow}
+              onCheckedChange={setIvrFlow}
+              testId="channel-ivr"
+            >
+              Without an IVR, ELI answers every call—no setup required. If you use an existing or 3rd-party IVR, forward your calls to the number below. You can go live anytime.
+              {ivrLink}
+            </SettingRow>
             <InfoRow
               title="ELI Orchestrator Number"
               testId="channel-sms"
               badge={
-                selectedNumber === defaultValue ? (
-                  <span className="rounded-full bg-emerald-50 px-1.5 py-0 text-[10px] font-semibold text-emerald-700">
-                    Recommended Default
-                  </span>
-                ) : undefined
+                <span className="rounded-full bg-emerald-50 px-1.5 py-0 text-[10px] font-semibold text-emerald-700">
+                  {currentOutbound && selectedNumber === currentOutbound
+                    ? "Current Outbound Default"
+                    : selectedNumber === defaultValue
+                      ? "Recommended Default"
+                      : "New Outbound Default"}
+                </span>
               }
               extra={
                 <div className="flex items-center gap-2">
@@ -537,13 +591,12 @@ export function GoLiveActivationDialog({
                       <span className="flex w-full items-center justify-between gap-3 pr-2 tabular-nums">
                         {selectedNumber}
                         <span
-                          className={cn(
-                            "text-[11px]",
-                            selectedNumber === defaultValue ? "font-medium text-emerald-700" : "text-muted-foreground"
-                          )}
+                          className="text-[11px] font-medium text-emerald-700"
                           data-testid="eli-number-note"
                         >
-                          {options.find((o) => o.value === selectedNumber)?.note}
+                          {(currentOutbound ? selectedNumber === currentOutbound : selectedNumber === defaultValue)
+                            ? "Current Outbound Default"
+                            : "New Outbound Default"}
                         </span>
                       </span>
                     </SelectValue>
@@ -578,16 +631,8 @@ export function GoLiveActivationDialog({
                 </div>
               }
             >
-              Automated messages from contact points and the message center send from this number.
+              Messages from contact points and the message center send from this number. The number you pick becomes the outbound default.
             </InfoRow>
-          </ul>
-
-          <div className="mt-8 border-t border-slate-300" />
-          <SectionTitle
-            title="Setup Status"
-            subtitle="We check these for you. Not required to go live — finish anything not done now or later."
-          />
-          <ul className="divide-y divide-border/60">
             <InfoRow
               title="AI-Powered Email"
               testId="email-integration-review"
@@ -630,32 +675,13 @@ export function GoLiveActivationDialog({
               }
             />
             <InfoRow
-              title="IVR Flow"
-              testId="channel-ivr"
-              badge={<StatusBadge status={ivr} />}
-              description={
-                <>
-                  {ivr === "done"
-                    ? "Inbound calls route to the ELI Orchestrator number behind your Leasing AI and Maintenance AI options."
-                    : "Calls aren't routed to the ELI Orchestrator number yet. Your current phone menu keeps working as it does today."}
-                  <button
-                    type="button"
-                    className="mt-1 block font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
-                    onClick={() => {
-                      close();
-                      onReviewIvr?.();
-                    }}
-                    data-testid="review-ivr-setup"
-                  >
-                    {ivr === "done" ? "Review IVR setup" : "Finish IVR setup"}
-                  </button>
-                </>
-              }
-            />
-            <InfoRow
               title="ELI Orchestrator Settings"
               testId="channel-agent-settings"
-              badge={<StatusBadge status={agentSettings} />}
+              badge={
+                <span className="rounded-full bg-emerald-50 px-1.5 py-0 text-[10px] font-semibold text-emerald-700">
+                  Recommended Defaults Applied
+                </span>
+              }
               description={
                 <>
                   Review Entrata settings, voice, and tone, and simulate a conversation to confirm how the agent responds.
@@ -717,6 +743,7 @@ export function GoLiveActivationDialog({
                 onConfirm(property, {
                   prospectPortal,
                   residentPortal,
+                  ivr: ivrFlow,
                   sms: true,
                   email: email === "done",
                   eliNumber: selectedNumber,
